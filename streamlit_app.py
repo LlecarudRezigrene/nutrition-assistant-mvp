@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, DateTime, Text, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -65,13 +64,54 @@ class DietPlan(Base):
 # Inicializar base de datos
 @st.cache_resource
 def init_db():
-    database_url = st.secrets["DATABASE_URL"]
-    engine = create_engine(database_url)
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    return Session
+    try:
+        # Check if DATABASE_URL exists in secrets
+        if "DATABASE_URL" not in st.secrets:
+            st.error("❌ ERROR: DATABASE_URL no está configurado en los secrets de Streamlit.")
+            st.info("""
+            **Para configurar DATABASE_URL:**
+            1. Ve a tu app en Streamlit Cloud
+            2. Click en Settings (⚙️)
+            3. Click en Secrets
+            4. Agrega: `DATABASE_URL = "tu_connection_string_de_supabase"`
+            5. Reinicia la app
+            """)
+            st.stop()
+            
+        database_url = st.secrets["DATABASE_URL"]
+        
+        # Validate connection string format
+        if not database_url.startswith("postgresql://"):
+            st.error("❌ ERROR: DATABASE_URL debe comenzar con 'postgresql://'")
+            st.stop()
+        
+        engine = create_engine(database_url, pool_pre_ping=True, pool_recycle=3600)
+        
+        # Test connection
+        with engine.connect() as conn:
+            conn.execute("SELECT 1")
+        
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
+        return Session
+    
+    except Exception as e:
+        st.error(f"❌ ERROR al conectar con la base de datos: {str(e)}")
+        st.info("""
+        **Posibles soluciones:**
+        1. Verifica que tu proyecto de Supabase esté activo
+        2. Verifica que el DATABASE_URL sea correcto
+        3. Verifica que la contraseña no tenga caracteres especiales sin escapar
+        4. Intenta regenerar el DATABASE_URL en Supabase
+        """)
+        st.stop()
 
-Session = init_db()
+# Try to initialize database
+try:
+    Session = init_db()
+except Exception as e:
+    st.error(f"Error crítico al inicializar la aplicación: {str(e)}")
+    st.stop()
 
 # Funciones auxiliares
 def calculate_bmi(weight, height):
@@ -81,9 +121,10 @@ def calculate_bmi(weight, height):
 
 def generate_diet_plan_openai(patient, lab_values, special_considerations, api_key):
     """Generar plan de dieta usando OpenAI"""
-    client = OpenAI(api_key=api_key)
-    
-    prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
+    try:
+        client = OpenAI(api_key=api_key)
+        
+        prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
 
 Información del Paciente:
 - Nombre: {patient.name}
@@ -113,20 +154,24 @@ Por favor crea un plan detallado de 7 días que incluya:
 
 Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en México."""
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,
-        max_tokens=2500
-    )
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=2500
+        )
+        
+        return response.choices[0].message.content
     
-    return response.choices[0].message.content
+    except Exception as e:
+        raise Exception(f"Error con OpenAI API: {str(e)}")
 
 def generate_diet_plan_anthropic(patient, lab_values, special_considerations, api_key):
     """Generar plan de dieta usando Anthropic Claude"""
-    client = anthropic.Anthropic(api_key=api_key)
-    
-    prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        
+        prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
 
 Información del Paciente:
 - Nombre: {patient.name}
@@ -156,13 +201,16 @@ Por favor crea un plan detallado de 7 días que incluya:
 
 Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en México."""
 
-    message = client.messages.create(
-        model="claude-sonnet-4-5-20250929",
-        max_tokens=2500,
-        messages=[{"role": "user", "content": prompt}]
-    )
+        message = client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=2500,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        return message.content[0].text
     
-    return message.content[0].text
+    except Exception as e:
+        raise Exception(f"Error con Anthropic API: {str(e)}")
 
 # Aplicación Principal
 st.title("🥗 Asistente de Nutrición con IA - MVP")
