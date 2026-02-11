@@ -89,7 +89,7 @@ def init_db():
         
         # Test connection
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         
         Base.metadata.create_all(engine)
         Session = sessionmaker(bind=engine)
