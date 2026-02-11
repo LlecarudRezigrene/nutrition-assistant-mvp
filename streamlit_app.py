@@ -62,6 +62,16 @@ class DietPlan(Base):
     
     patient = relationship("Patient", back_populates="diet_plans")
 
+class ExamplePlan(Base):
+    __tablename__ = "example_plans"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    patient_profile = Column(Text)  # Description of patient type (e.g., "diabetic, 45 years old, sedentary")
+    plan_content = Column(Text, nullable=False)  # The actual example plan
+    tags = Column(JSON, default=[])  # Tags like ["diabetes", "weight-loss", "vegetarian"]
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 # Inicializar base de datos
 @st.cache_resource
 def init_db():
@@ -97,9 +107,102 @@ def calculate_bmi(weight, height):
     height_m = height / 100
     return round(weight / (height_m ** 2), 2)
 
+def find_relevant_examples(patient, lab_values, special_considerations, top_k=2):
+    """
+    Find relevant example plans based on patient conditions
+    Simple keyword matching approach
+    """
+    session = Session()
+    all_examples = session.query(ExamplePlan).all()
+    session.close()
+    
+    if not all_examples:
+        return []
+    
+    # Create search keywords from patient data
+    search_keywords = set()
+    
+    # Add health conditions
+    if patient.health_conditions:
+        for condition in patient.health_conditions:
+            search_keywords.add(condition.lower().strip())
+    
+    # Add special considerations
+    if special_considerations:
+        for word in special_considerations.lower().split():
+            if len(word) > 3:  # Only meaningful words
+                search_keywords.add(word.strip())
+    
+    # Add age range keywords
+    if patient.age < 18:
+        search_keywords.add("adolescente")
+        search_keywords.add("joven")
+    elif patient.age < 30:
+        search_keywords.add("adulto joven")
+    elif patient.age < 60:
+        search_keywords.add("adulto")
+    else:
+        search_keywords.add("adulto mayor")
+        search_keywords.add("tercera edad")
+    
+    # Add BMI category
+    bmi = patient.bmi
+    if bmi < 18.5:
+        search_keywords.add("bajo peso")
+    elif bmi < 25:
+        search_keywords.add("peso normal")
+    elif bmi < 30:
+        search_keywords.add("sobrepeso")
+    else:
+        search_keywords.add("obesidad")
+    
+    # Score each example
+    scored_examples = []
+    for example in all_examples:
+        score = 0
+        
+        # Check tags
+        if example.tags:
+            for tag in example.tags:
+                if tag.lower() in search_keywords:
+                    score += 3  # Tags are more important
+        
+        # Check patient profile
+        if example.patient_profile:
+            profile_lower = example.patient_profile.lower()
+            for keyword in search_keywords:
+                if keyword in profile_lower:
+                    score += 2
+        
+        # Check plan content (less weight)
+        if example.plan_content:
+            content_lower = example.plan_content.lower()
+            for keyword in search_keywords:
+                if keyword in content_lower:
+                    score += 1
+        
+        if score > 0:
+            scored_examples.append((score, example))
+    
+    # Sort by score and return top_k
+    scored_examples.sort(reverse=True, key=lambda x: x[0])
+    return [example for score, example in scored_examples[:top_k]]
+
 def generate_diet_plan_openai(patient, lab_values, special_considerations, api_key):
-    """Generar plan de dieta usando OpenAI"""
+    """Generar plan de dieta usando OpenAI con RAG"""
     client = OpenAI(api_key=api_key)
+    
+    # Get relevant example plans
+    relevant_examples = find_relevant_examples(patient, lab_values, special_considerations)
+    
+    # Build examples section
+    examples_text = ""
+    if relevant_examples:
+        examples_text = "\n\nEJEMPLOS DE REFERENCIA (usa estos como guía de estilo y formato):\n\n"
+        for idx, example in enumerate(relevant_examples, 1):
+            examples_text += f"--- EJEMPLO {idx} ---\n"
+            examples_text += f"Perfil del paciente: {example.patient_profile}\n"
+            examples_text += f"Plan:\n{example.plan_content}\n\n"
     
     prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
 
@@ -119,6 +222,8 @@ Resultados de Laboratorio:
 - Hemoglobina: {lab_values.hemoglobin if lab_values and lab_values.hemoglobin else 'N/A'} g/dL
 
 Consideraciones Especiales: {special_considerations if special_considerations else 'Ninguna'}
+{examples_text}
+IMPORTANTE: Usa los ejemplos de referencia como guía para el estilo, formato y estructura del plan. Adapta el contenido específicamente para este paciente, pero mantén un estilo similar.
 
 Por favor crea un plan detallado de 7 días que incluya:
 1. Objetivos calóricos diarios
@@ -141,8 +246,20 @@ Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en M�
     return response.choices[0].message.content
 
 def generate_diet_plan_anthropic(patient, lab_values, special_considerations, api_key):
-    """Generar plan de dieta usando Anthropic Claude"""
+    """Generar plan de dieta usando Anthropic Claude con RAG"""
     client = anthropic.Anthropic(api_key=api_key)
+    
+    # Get relevant example plans
+    relevant_examples = find_relevant_examples(patient, lab_values, special_considerations)
+    
+    # Build examples section
+    examples_text = ""
+    if relevant_examples:
+        examples_text = "\n\nEJEMPLOS DE REFERENCIA (usa estos como guía de estilo y formato):\n\n"
+        for idx, example in enumerate(relevant_examples, 1):
+            examples_text += f"--- EJEMPLO {idx} ---\n"
+            examples_text += f"Perfil del paciente: {example.patient_profile}\n"
+            examples_text += f"Plan:\n{example.plan_content}\n\n"
     
     prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
 
@@ -162,6 +279,8 @@ Resultados de Laboratorio:
 - Hemoglobina: {lab_values.hemoglobin if lab_values and lab_values.hemoglobin else 'N/A'} g/dL
 
 Consideraciones Especiales: {special_considerations if special_considerations else 'Ninguna'}
+{examples_text}
+IMPORTANTE: Usa los ejemplos de referencia como guía para el estilo, formato y estructura del plan. Adapta el contenido específicamente para este paciente, pero mantén un estilo similar.
 
 Por favor crea un plan detallado de 7 días que incluya:
 1. Objetivos calóricos diarios
@@ -181,7 +300,7 @@ Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en M�
     )
     
     return message.content[0].text
-
+    
 def reset_form():
     """Resetear todos los campos del formulario"""
     keys_to_delete = [
@@ -208,6 +327,8 @@ if 'current_plan_id' not in st.session_state:
     st.session_state.current_plan_id = None
 if 'load_existing_patient' not in st.session_state:
     st.session_state.load_existing_patient = False
+if 'show_add_example' not in st.session_state:
+    st.session_state.show_add_example = False
 
 # Aplicación Principal
 st.title("🥗 Asistente de Nutrición con IA - MVP")
@@ -240,6 +361,129 @@ if not api_key:
     - **Anthropic**: Visita [console.anthropic.com](https://console.anthropic.com) → API Keys
     """)
     st.stop()
+
+# Nueva Sección: Gestión de Planes de Ejemplo (en el sidebar)
+with st.sidebar:
+    st.markdown("---")
+    st.subheader("📚 Planes de Ejemplo")
+    
+    if st.button("➕ Agregar Plan de Ejemplo"):
+        st.session_state.show_add_example = True
+    
+    session = Session()
+    example_count = session.query(ExamplePlan).count()
+    session.close()
+    
+    st.caption(f"Tienes {example_count} plan(es) de ejemplo guardado(s)")
+
+# Modal para agregar ejemplo (fuera del sidebar)
+if st.session_state.get('show_add_example', False):
+    st.markdown("---")
+    st.header("➕ Agregar Plan de Ejemplo")
+    
+    with st.form("add_example_form"):
+        example_title = st.text_input("Título del Plan *", placeholder="ej: Plan para Diabético Tipo 2")
+        
+        example_profile = st.text_area(
+            "Perfil del Paciente *",
+            placeholder="ej: Hombre de 55 años, diabético tipo 2, sedentario, IMC 28, necesita perder peso",
+            height=100
+        )
+        
+        example_tags_input = st.text_input(
+            "Etiquetas (separadas por comas) *",
+            placeholder="ej: diabetes, sobrepeso, sedentario, hipertensión"
+        )
+        
+        example_content = st.text_area(
+            "Contenido del Plan *",
+            placeholder="Pega aquí un plan de ejemplo completo que quieras usar como referencia...",
+            height=400
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            submitted = st.form_submit_button("💾 Guardar Ejemplo", type="primary")
+        with col2:
+            cancelled = st.form_submit_button("❌ Cancelar")
+        
+        if submitted:
+            if not example_title or not example_profile or not example_tags_input or not example_content:
+                st.error("Por favor completa todos los campos marcados con *")
+            else:
+                try:
+                    session = Session()
+                    
+                    # Parse tags
+                    tags_list = [tag.strip() for tag in example_tags_input.split(',')]
+                    
+                    new_example = ExamplePlan(
+                        title=example_title,
+                        patient_profile=example_profile,
+                        plan_content=example_content,
+                        tags=tags_list
+                    )
+                    
+                    session.add(new_example)
+                    session.commit()
+                    
+                    st.success("✅ Plan de ejemplo guardado exitosamente!")
+                    st.session_state.show_add_example = False
+                    session.close()
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Error al guardar ejemplo: {str(e)}")
+                    if 'session' in locals():
+                        session.rollback()
+                        session.close()
+        
+        if cancelled:
+            st.session_state.show_add_example = False
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Show existing examples
+    st.subheader("📋 Planes de Ejemplo Existentes")
+    
+    session = Session()
+    all_examples = session.query(ExamplePlan).order_by(ExamplePlan.created_at.desc()).all()
+    session.close()
+    
+    if all_examples:
+        for example in all_examples:
+            with st.expander(f"📄 {example.title}", expanded=False):
+                st.markdown(f"**ID:** {example.id}")
+                st.markdown(f"**Perfil:** {example.patient_profile}")
+                st.markdown(f"**Etiquetas:** {', '.join(example.tags) if example.tags else 'Sin etiquetas'}")
+                st.markdown(f"**Creado:** {example.created_at.strftime('%d/%m/%Y %H:%M')}")
+                
+                st.text_area(
+                    "Contenido",
+                    value=example.content,
+                    height=200,
+                    disabled=True,
+                    key=f"example_content_{example.id}"
+                )
+                
+                if st.button(f"🗑️ Eliminar", key=f"delete_example_{example.id}"):
+                    try:
+                        session = Session()
+                        example_to_delete = session.query(ExamplePlan).filter_by(id=example.id).first()
+                        if example_to_delete:
+                            session.delete(example_to_delete)
+                            session.commit()
+                            st.success("Ejemplo eliminado")
+                            session.close()
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+                        if 'session' in locals():
+                            session.rollback()
+                            session.close()
+    else:
+        st.info("No hay planes de ejemplo. Agrega algunos para mejorar la calidad de los planes generados.")
 
 # Sección 0: Buscar Paciente Existente
 st.header("🔍 Buscar Paciente Existente")
