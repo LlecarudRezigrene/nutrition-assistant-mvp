@@ -17,7 +17,7 @@ st.set_page_config(
 # Configuración de base de datos
 Base = declarative_base()
 
-# Modelos (mismos que tus modelos FastAPI)
+# Modelos
 class Patient(Base):
     __tablename__ = "patients"
     
@@ -66,29 +66,18 @@ class DietPlan(Base):
 @st.cache_resource
 def init_db():
     try:
-        # Check if DATABASE_URL exists in secrets
         if "DATABASE_URL" not in st.secrets:
             st.error("❌ ERROR: DATABASE_URL no está configurado en los secrets de Streamlit.")
-            st.info("""
-            **Para configurar DATABASE_URL:**
-            1. Ve a tu app en Streamlit Cloud
-            2. Click en Settings (⚙️)
-            3. Click en Secrets
-            4. Agrega: `DATABASE_URL = "tu_connection_string_de_supabase"`
-            5. Reinicia la app
-            """)
             st.stop()
             
         database_url = st.secrets["DATABASE_URL"]
         
-        # Validate connection string format
         if not database_url.startswith("postgresql://"):
             st.error("❌ ERROR: DATABASE_URL debe comenzar con 'postgresql://'")
             st.stop()
         
         engine = create_engine(database_url, pool_pre_ping=True, pool_recycle=3600)
         
-        # Test connection
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         
@@ -98,13 +87,6 @@ def init_db():
     
     except Exception as e:
         st.error(f"❌ ERROR al conectar con la base de datos: {str(e)}")
-        st.info("""
-        **Posibles soluciones:**
-        1. Verifica que tu proyecto de Supabase esté activo
-        2. Verifica que el DATABASE_URL sea correcto
-        3. Verifica que la contraseña no tenga caracteres especiales sin escapar
-        4. Intenta regenerar el DATABASE_URL en Supabase
-        """)
         st.stop()
 
 Session = init_db()
@@ -213,6 +195,20 @@ def reset_form():
         if key in st.session_state:
             del st.session_state[key]
 
+# Inicializar estado de sesión ANTES de todo
+if 'patient_created' not in st.session_state:
+    st.session_state.patient_created = False
+if 'plan_generated' not in st.session_state:
+    st.session_state.plan_generated = False
+if 'current_patient_id' not in st.session_state:
+    st.session_state.current_patient_id = None
+if 'current_plan' not in st.session_state:
+    st.session_state.current_plan = None
+if 'current_plan_id' not in st.session_state:
+    st.session_state.current_plan_id = None
+if 'load_existing_patient' not in st.session_state:
+    st.session_state.load_existing_patient = False
+
 # Aplicación Principal
 st.title("🥗 Asistente de Nutrición con IA - MVP")
 st.markdown("---")
@@ -245,20 +241,6 @@ if not api_key:
     """)
     st.stop()
 
-# Inicializar estado de sesión
-if 'patient_created' not in st.session_state:
-    st.session_state.patient_created = False
-if 'plan_generated' not in st.session_state:
-    st.session_state.plan_generated = False
-if 'current_patient_id' not in st.session_state:
-    st.session_state.current_patient_id = None
-if 'current_plan' not in st.session_state:
-    st.session_state.current_plan = None
-if 'current_plan_id' not in st.session_state:
-    st.session_state.current_plan_id = None
-if 'load_existing_patient' not in st.session_state:
-    st.session_state.load_existing_patient = False
-
 # Sección 0: Buscar Paciente Existente
 st.header("🔍 Buscar Paciente Existente")
 
@@ -271,20 +253,25 @@ if all_patients:
     for p in all_patients:
         patient_options[f"{p.name} (ID: {p.id}) - {p.age} años"] = p.id
     
-    # Initialize selected patient key if not exists
-    if 'selected_patient_key' not in st.session_state:
-        st.session_state.selected_patient_key = "-- Crear Nuevo Paciente --"
+    # Determine default selection
+    default_index = 0
+    if st.session_state.current_patient_id:
+        for idx, (label, pid) in enumerate(patient_options.items()):
+            if pid == st.session_state.current_patient_id:
+                default_index = idx
+                break
     
     selected_patient = st.selectbox(
         "Selecciona un paciente existente o crea uno nuevo",
         options=list(patient_options.keys()),
+        index=default_index,
         key="patient_selector"
     )
     
     selected_patient_id = patient_options[selected_patient]
     
     # Check if selection changed
-    if selected_patient_id != st.session_state.get('current_patient_id'):
+    if selected_patient_id != st.session_state.current_patient_id:
         if selected_patient_id is not None:
             # Load patient data
             session = Session()
@@ -320,32 +307,16 @@ if all_patients:
                     st.session_state.patient_hemoglobin = 0.0
                 
                 session.close()
-                st.success(f"✅ Paciente '{patient.name}' cargado exitosamente!")
                 st.rerun()
         else:
             # "Crear Nuevo Paciente" was selected
-            if st.session_state.get('load_existing_patient', False):
-                # Clear patient data
-                st.session_state.patient_created = False
-                st.session_state.current_patient_id = None
-                st.session_state.load_existing_patient = False
-                st.session_state.plan_generated = False
-                st.session_state.current_plan = None
-                st.session_state.current_plan_id = None
-                
-                # Clear patient fields
-                for key in ['patient_name', 'patient_age', 'patient_gender', 'patient_weight',
-                           'patient_height', 'patient_health_conditions', 'patient_glucose',
-                           'patient_cholesterol', 'patient_triglycerides', 'patient_hemoglobin']:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                
-                st.info("📝 Modo: Crear nuevo paciente")
+            if st.session_state.load_existing_patient:
+                reset_form()
                 st.rerun()
     
     # Show current status
     if st.session_state.load_existing_patient and st.session_state.current_patient_id:
-        st.info(f"📋 Paciente actual: {st.session_state.get('patient_name', 'Desconocido')} (ID: {st.session_state.current_patient_id})")
+        st.success(f"📋 Paciente cargado: {st.session_state.get('patient_name', 'Desconocido')} (ID: {st.session_state.current_patient_id})")
     else:
         st.info("📝 Modo: Crear nuevo paciente")
         
@@ -357,41 +328,29 @@ st.markdown("---")
 # Sección 1: Información del Paciente
 st.header("1️⃣ Información del Paciente")
 
+# Get values from session state or use defaults
+name_value = st.session_state.get('patient_name', '')
+age_value = st.session_state.get('patient_age', 30)
+gender_value = st.session_state.get('patient_gender', 'Masculino')
+weight_value = st.session_state.get('patient_weight', 70.0)
+height_value = st.session_state.get('patient_height', 170.0)
+health_conditions_value = st.session_state.get('patient_health_conditions', '')
+glucose_value = st.session_state.get('patient_glucose', 0.0)
+cholesterol_value = st.session_state.get('patient_cholesterol', 0.0)
+triglycerides_value = st.session_state.get('patient_triglycerides', 0.0)
+hemoglobin_value = st.session_state.get('patient_hemoglobin', 0.0)
+
 col1, col2 = st.columns(2)
 
-# Determinar valores por defecto basados en si hay un paciente cargado
-if st.session_state.load_existing_patient:
-    default_name = st.session_state.get('patient_name', '')
-    default_age = st.session_state.get('patient_age', 30)
-    default_gender = st.session_state.get('patient_gender', 'Masculino')
-    default_weight = st.session_state.get('patient_weight', 70.0)
-    default_height = st.session_state.get('patient_height', 170.0)
-    default_health_conditions = st.session_state.get('patient_health_conditions', '')
-    default_glucose = st.session_state.get('patient_glucose', 0.0)
-    default_cholesterol = st.session_state.get('patient_cholesterol', 0.0)
-    default_triglycerides = st.session_state.get('patient_triglycerides', 0.0)
-    default_hemoglobin = st.session_state.get('patient_hemoglobin', 0.0)
-else:
-    default_name = ''
-    default_age = 30
-    default_gender = 'Masculino'
-    default_weight = 70.0
-    default_height = 170.0
-    default_health_conditions = ''
-    default_glucose = 0.0
-    default_cholesterol = 0.0
-    default_triglycerides = 0.0
-    default_hemoglobin = 0.0
-
 with col1:
-    name = st.text_input("Nombre *", value=default_name, key="input_name")
-    age = st.number_input("Edad *", min_value=1, max_value=120, value=int(default_age), key="input_age")
-    gender_index = ["Masculino", "Femenino", "Otro"].index(default_gender)
-    gender = st.selectbox("Género *", ["Masculino", "Femenino", "Otro"], index=gender_index, key="input_gender")
+    name = st.text_input("Nombre *", value=name_value)
+    age = st.number_input("Edad *", min_value=1, max_value=120, value=int(age_value))
+    gender_index = ["Masculino", "Femenino", "Otro"].index(gender_value)
+    gender = st.selectbox("Género *", ["Masculino", "Femenino", "Otro"], index=gender_index)
 
 with col2:
-    weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=float(default_weight), step=0.1, key="input_weight")
-    height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=float(default_height), step=0.1, key="input_height")
+    weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=float(weight_value), step=0.1)
+    height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=float(height_value), step=0.1)
     
     if weight and height:
         bmi = calculate_bmi(weight, height)
@@ -399,9 +358,8 @@ with col2:
 
 health_conditions = st.text_input(
     "Condiciones de Salud (separadas por comas)",
-    value=default_health_conditions,
-    placeholder="ej: diabetes, hipertensión, enfermedad celíaca",
-    key="input_health_conditions"
+    value=health_conditions_value,
+    placeholder="ej: diabetes, hipertensión, enfermedad celíaca"
 )
 
 st.subheader("Resultados de Laboratorio")
@@ -409,22 +367,18 @@ st.subheader("Resultados de Laboratorio")
 col3, col4 = st.columns(2)
 
 with col3:
-    glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=float(default_glucose), step=0.1, key="input_glucose")
-    cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=float(default_cholesterol), step=0.1, key="input_cholesterol")
+    glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=float(glucose_value), step=0.1)
+    cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=float(cholesterol_value), step=0.1)
 
 with col4:
-    triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=float(default_triglycerides), step=0.1, key="input_triglycerides")
-    hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=float(default_hemoglobin), step=0.1, key="input_hemoglobin")
-
-# Mostrar mensaje si el paciente fue cargado
-if st.session_state.load_existing_patient:
-    st.info(f"📋 Paciente cargado: {default_name} (ID: {st.session_state.current_patient_id})")
+    triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=float(triglycerides_value), step=0.1)
+    hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=float(hemoglobin_value), step=0.1)
 
 # Botones según el estado
 col_btn1, col_btn2 = st.columns(2)
 
 with col_btn1:
-    # Botón para CREAR nuevo paciente (solo si no hay paciente cargado)
+    # Botón para CREAR nuevo paciente
     if not st.session_state.load_existing_patient:
         if st.button("💾 Crear Paciente y Guardar Datos", type="primary", disabled=st.session_state.patient_created):
             if not name or not age or not weight or not height:
@@ -433,11 +387,9 @@ with col_btn1:
                 try:
                     session = Session()
                     
-                    # Crear paciente
                     conditions_list = [c.strip() for c in health_conditions.split(',')] if health_conditions else []
                     bmi_value = calculate_bmi(weight, height)
                     
-                    # Convertir género a inglés para la base de datos
                     gender_map = {"Masculino": "male", "Femenino": "female", "Otro": "other"}
                     gender_db = gender_map.get(gender, "other")
                     
@@ -455,7 +407,6 @@ with col_btn1:
                     session.commit()
                     session.refresh(new_patient)
                     
-                    # Crear valores de laboratorio si se proporcionaron
                     if any([glucose, cholesterol, triglycerides, hemoglobin]):
                         lab_value = LabValue(
                             patient_id=new_patient.id,
@@ -481,7 +432,7 @@ with col_btn1:
                         session.close()
 
 with col_btn2:
-    # Botón para ACTUALIZAR paciente existente (solo si hay paciente cargado)
+    # Botón para ACTUALIZAR paciente existente
     if st.session_state.load_existing_patient:
         if st.button("🔄 Actualizar Datos del Paciente", type="primary"):
             if not name or not age or not weight or not height:
@@ -490,15 +441,12 @@ with col_btn2:
                 try:
                     session = Session()
                     
-                    # Obtener paciente existente
                     patient = session.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
                     
                     if patient:
-                        # Actualizar datos del paciente
                         conditions_list = [c.strip() for c in health_conditions.split(',')] if health_conditions else []
                         bmi_value = calculate_bmi(weight, height)
                         
-                        # Convertir género a inglés para la base de datos
                         gender_map = {"Masculino": "male", "Femenino": "female", "Otro": "other"}
                         gender_db = gender_map.get(gender, "other")
                         
@@ -511,19 +459,16 @@ with col_btn2:
                         patient.bmi = bmi_value
                         patient.updated_at = datetime.utcnow()
                         
-                        # Actualizar o crear valores de laboratorio
                         lab_values = session.query(LabValue).filter_by(patient_id=patient.id).order_by(LabValue.created_at.desc()).first()
                         
                         if any([glucose, cholesterol, triglycerides, hemoglobin]):
                             if lab_values:
-                                # Actualizar laboratorios existentes
                                 lab_values.glucose = float(glucose) if glucose > 0 else None
                                 lab_values.cholesterol = float(cholesterol) if cholesterol > 0 else None
                                 lab_values.triglycerides = float(triglycerides) if triglycerides > 0 else None
                                 lab_values.hemoglobin = float(hemoglobin) if hemoglobin > 0 else None
                                 lab_values.test_date = datetime.now().strftime("%Y-%m-%d")
                             else:
-                                # Crear nuevos laboratorios
                                 new_lab_value = LabValue(
                                     patient_id=patient.id,
                                     test_date=datetime.now().strftime("%Y-%m-%d"),
@@ -536,7 +481,6 @@ with col_btn2:
                         
                         session.commit()
                         
-                        # Actualizar session_state con nuevos valores
                         st.session_state.patient_name = name
                         st.session_state.patient_age = age
                         st.session_state.patient_gender = gender
@@ -569,8 +513,7 @@ st.header("2️⃣ Consideraciones Especiales y Generar Plan")
 special_considerations = st.text_area(
     "Consideraciones Especiales",
     placeholder="Ingresa cualquier alergia, preferencias alimentarias, restricciones dietéticas, consideraciones culturales, etc.",
-    height=100,
-    key="special_considerations"
+    height=100
 )
 
 if st.button("🤖 Generar Plan de Alimentación", type="primary", disabled=not st.session_state.patient_created):
@@ -581,17 +524,14 @@ if st.button("🤖 Generar Plan de Alimentación", type="primary", disabled=not 
             with st.spinner(f"Generando plan de alimentación personalizado usando {ai_provider}..."):
                 session = Session()
                 
-                # Obtener paciente y valores de laboratorio
                 patient = session.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
                 lab_values = session.query(LabValue).filter_by(patient_id=patient.id).order_by(LabValue.created_at.desc()).first()
                 
-                # Generar plan
                 if ai_provider == "OpenAI":
                     plan_text = generate_diet_plan_openai(patient, lab_values, special_considerations, api_key)
                 else:
                     plan_text = generate_diet_plan_anthropic(patient, lab_values, special_considerations, api_key)
                 
-                # Guardar plan en base de datos
                 new_plan = DietPlan(
                     patient_id=patient.id,
                     plan_details=plan_text,
@@ -622,16 +562,13 @@ st.markdown("---")
 if st.session_state.plan_generated and st.session_state.current_plan:
     st.header("3️⃣ Plan de Alimentación Generado")
     
-    # Mostrar plan
     st.text_area(
         "Plan de Alimentación",
         value=st.session_state.current_plan,
         height=400,
-        disabled=True,
-        key="plan_display"
+        disabled=True
     )
     
-    # Botón de descarga
     st.download_button(
         label="📥 Descargar Plan",
         data=st.session_state.current_plan,
@@ -641,14 +578,12 @@ if st.session_state.plan_generated and st.session_state.current_plan:
     
     st.markdown("---")
     
-    # Modificar y Regenerar
     st.subheader("Modificar y Regenerar Plan")
     
     modifications = st.text_area(
         "Ingresa modificaciones o requisitos adicionales",
         placeholder="ej: Agregar más opciones de proteína, reducir carbohidratos, incluir alternativas vegetarianas",
-        height=100,
-        key="modifications"
+        height=100
     )
     
     if st.button("🔄 Regenerar Plan", type="secondary", disabled=not modifications):
@@ -659,20 +594,16 @@ if st.session_state.plan_generated and st.session_state.current_plan:
                 with st.spinner(f"Regenerando plan con modificaciones usando {ai_provider}..."):
                     session = Session()
                     
-                    # Obtener paciente y valores de laboratorio
                     patient = session.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
                     lab_values = session.query(LabValue).filter_by(patient_id=patient.id).order_by(LabValue.created_at.desc()).first()
                     
-                    # Crear prompt modificado
                     modified_considerations = f"{special_considerations}\n\nModificaciones solicitadas: {modifications}"
                     
-                    # Generar nuevo plan
                     if ai_provider == "OpenAI":
                         new_plan_text = generate_diet_plan_openai(patient, lab_values, modified_considerations, api_key)
                     else:
                         new_plan_text = generate_diet_plan_anthropic(patient, lab_values, modified_considerations, api_key)
                     
-                    # Actualizar plan existente
                     existing_plan = session.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
                     if existing_plan:
                         existing_plan.plan_details = new_plan_text
@@ -695,7 +626,7 @@ if st.session_state.plan_generated and st.session_state.current_plan:
                 if 'session' in locals():
                     session.close()
 
-# Botón de reinicio (al final)
+# Botón de reinicio
 st.markdown("---")
 if st.button("🔄 Iniciar Nuevo Paciente"):
     reset_form()
