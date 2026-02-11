@@ -346,14 +346,14 @@ else:
     default_hemoglobin = 0.0
 
 with col1:
-    name = st.text_input("Nombre *", value=default_name, disabled=st.session_state.load_existing_patient)
-    age = st.number_input("Edad *", min_value=1, max_value=120, value=int(default_age), disabled=st.session_state.load_existing_patient)
+    name = st.text_input("Nombre *", value=default_name, key="input_name")
+    age = st.number_input("Edad *", min_value=1, max_value=120, value=int(default_age), key="input_age")
     gender_index = ["Masculino", "Femenino", "Otro"].index(default_gender)
-    gender = st.selectbox("Género *", ["Masculino", "Femenino", "Otro"], index=gender_index, disabled=st.session_state.load_existing_patient)
+    gender = st.selectbox("Género *", ["Masculino", "Femenino", "Otro"], index=gender_index, key="input_gender")
 
 with col2:
-    weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=float(default_weight), step=0.1, disabled=st.session_state.load_existing_patient)
-    height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=float(default_height), step=0.1, disabled=st.session_state.load_existing_patient)
+    weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=float(default_weight), step=0.1, key="input_weight")
+    height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=float(default_height), step=0.1, key="input_height")
     
     if weight and height:
         bmi = calculate_bmi(weight, height)
@@ -363,7 +363,7 @@ health_conditions = st.text_input(
     "Condiciones de Salud (separadas por comas)",
     value=default_health_conditions,
     placeholder="ej: diabetes, hipertensión, enfermedad celíaca",
-    disabled=st.session_state.load_existing_patient
+    key="input_health_conditions"
 )
 
 st.subheader("Resultados de Laboratorio")
@@ -371,72 +371,157 @@ st.subheader("Resultados de Laboratorio")
 col3, col4 = st.columns(2)
 
 with col3:
-    glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=float(default_glucose), step=0.1, disabled=st.session_state.load_existing_patient)
-    cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=float(default_cholesterol), step=0.1, disabled=st.session_state.load_existing_patient)
+    glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=float(default_glucose), step=0.1, key="input_glucose")
+    cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=float(default_cholesterol), step=0.1, key="input_cholesterol")
 
 with col4:
-    triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=float(default_triglycerides), step=0.1, disabled=st.session_state.load_existing_patient)
-    hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=float(default_hemoglobin), step=0.1, disabled=st.session_state.load_existing_patient)
+    triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=float(default_triglycerides), step=0.1, key="input_triglycerides")
+    hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=float(default_hemoglobin), step=0.1, key="input_hemoglobin")
 
 # Mostrar mensaje si el paciente fue cargado
 if st.session_state.load_existing_patient:
     st.info(f"📋 Paciente cargado: {default_name} (ID: {st.session_state.current_patient_id})")
 
-# Solo mostrar botón de crear si NO hay paciente cargado
-if not st.session_state.load_existing_patient:
-    if st.button("💾 Crear Paciente y Guardar Datos", type="primary", disabled=st.session_state.patient_created):
-        if not name or not age or not weight or not height:
-            st.error("Por favor completa todos los campos requeridos (marcados con *)")
-        else:
-            try:
-                session = Session()
-                
-                # Crear paciente
-                conditions_list = [c.strip() for c in health_conditions.split(',')] if health_conditions else []
-                bmi_value = calculate_bmi(weight, height)
-                
-                # Convertir género a inglés para la base de datos
-                gender_map = {"Masculino": "male", "Femenino": "female", "Otro": "other"}
-                gender_db = gender_map.get(gender, "other")
-                
-                new_patient = Patient(
-                    name=name,
-                    age=int(age),
-                    gender=gender_db,
-                    weight=float(weight),
-                    height=float(height),
-                    health_conditions=conditions_list,
-                    bmi=bmi_value
-                )
-                
-                session.add(new_patient)
-                session.commit()
-                session.refresh(new_patient)
-                
-                # Crear valores de laboratorio si se proporcionaron
-                if any([glucose, cholesterol, triglycerides, hemoglobin]):
-                    lab_value = LabValue(
-                        patient_id=new_patient.id,
-                        test_date=datetime.now().strftime("%Y-%m-%d"),
-                        glucose=float(glucose) if glucose > 0 else None,
-                        cholesterol=float(cholesterol) if cholesterol > 0 else None,
-                        triglycerides=float(triglycerides) if triglycerides > 0 else None,
-                        hemoglobin=float(hemoglobin) if hemoglobin > 0 else None
+# Botones según el estado
+col_btn1, col_btn2 = st.columns(2)
+
+with col_btn1:
+    # Botón para CREAR nuevo paciente (solo si no hay paciente cargado)
+    if not st.session_state.load_existing_patient:
+        if st.button("💾 Crear Paciente y Guardar Datos", type="primary", disabled=st.session_state.patient_created):
+            if not name or not age or not weight or not height:
+                st.error("Por favor completa todos los campos requeridos (marcados con *)")
+            else:
+                try:
+                    session = Session()
+                    
+                    # Crear paciente
+                    conditions_list = [c.strip() for c in health_conditions.split(',')] if health_conditions else []
+                    bmi_value = calculate_bmi(weight, height)
+                    
+                    # Convertir género a inglés para la base de datos
+                    gender_map = {"Masculino": "male", "Femenino": "female", "Otro": "other"}
+                    gender_db = gender_map.get(gender, "other")
+                    
+                    new_patient = Patient(
+                        name=name,
+                        age=int(age),
+                        gender=gender_db,
+                        weight=float(weight),
+                        height=float(height),
+                        health_conditions=conditions_list,
+                        bmi=bmi_value
                     )
-                    session.add(lab_value)
+                    
+                    session.add(new_patient)
                     session.commit()
-                
-                st.session_state.patient_created = True
-                st.session_state.current_patient_id = new_patient.id
-                
-                st.success(f"✅ ¡Paciente creado exitosamente! (ID: {new_patient.id})")
-                session.close()
-                
-            except Exception as e:
-                st.error(f"Error al crear paciente: {str(e)}")
-                if 'session' in locals():
-                    session.rollback()
+                    session.refresh(new_patient)
+                    
+                    # Crear valores de laboratorio si se proporcionaron
+                    if any([glucose, cholesterol, triglycerides, hemoglobin]):
+                        lab_value = LabValue(
+                            patient_id=new_patient.id,
+                            test_date=datetime.now().strftime("%Y-%m-%d"),
+                            glucose=float(glucose) if glucose > 0 else None,
+                            cholesterol=float(cholesterol) if cholesterol > 0 else None,
+                            triglycerides=float(triglycerides) if triglycerides > 0 else None,
+                            hemoglobin=float(hemoglobin) if hemoglobin > 0 else None
+                        )
+                        session.add(lab_value)
+                        session.commit()
+                    
+                    st.session_state.patient_created = True
+                    st.session_state.current_patient_id = new_patient.id
+                    
+                    st.success(f"✅ ¡Paciente creado exitosamente! (ID: {new_patient.id})")
                     session.close()
+                    
+                except Exception as e:
+                    st.error(f"Error al crear paciente: {str(e)}")
+                    if 'session' in locals():
+                        session.rollback()
+                        session.close()
+
+with col_btn2:
+    # Botón para ACTUALIZAR paciente existente (solo si hay paciente cargado)
+    if st.session_state.load_existing_patient:
+        if st.button("🔄 Actualizar Datos del Paciente", type="primary"):
+            if not name or not age or not weight or not height:
+                st.error("Por favor completa todos los campos requeridos (marcados con *)")
+            else:
+                try:
+                    session = Session()
+                    
+                    # Obtener paciente existente
+                    patient = session.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
+                    
+                    if patient:
+                        # Actualizar datos del paciente
+                        conditions_list = [c.strip() for c in health_conditions.split(',')] if health_conditions else []
+                        bmi_value = calculate_bmi(weight, height)
+                        
+                        # Convertir género a inglés para la base de datos
+                        gender_map = {"Masculino": "male", "Femenino": "female", "Otro": "other"}
+                        gender_db = gender_map.get(gender, "other")
+                        
+                        patient.name = name
+                        patient.age = int(age)
+                        patient.gender = gender_db
+                        patient.weight = float(weight)
+                        patient.height = float(height)
+                        patient.health_conditions = conditions_list
+                        patient.bmi = bmi_value
+                        patient.updated_at = datetime.utcnow()
+                        
+                        # Actualizar o crear valores de laboratorio
+                        lab_values = session.query(LabValue).filter_by(patient_id=patient.id).order_by(LabValue.created_at.desc()).first()
+                        
+                        if any([glucose, cholesterol, triglycerides, hemoglobin]):
+                            if lab_values:
+                                # Actualizar laboratorios existentes
+                                lab_values.glucose = float(glucose) if glucose > 0 else None
+                                lab_values.cholesterol = float(cholesterol) if cholesterol > 0 else None
+                                lab_values.triglycerides = float(triglycerides) if triglycerides > 0 else None
+                                lab_values.hemoglobin = float(hemoglobin) if hemoglobin > 0 else None
+                                lab_values.test_date = datetime.now().strftime("%Y-%m-%d")
+                            else:
+                                # Crear nuevos laboratorios
+                                new_lab_value = LabValue(
+                                    patient_id=patient.id,
+                                    test_date=datetime.now().strftime("%Y-%m-%d"),
+                                    glucose=float(glucose) if glucose > 0 else None,
+                                    cholesterol=float(cholesterol) if cholesterol > 0 else None,
+                                    triglycerides=float(triglycerides) if triglycerides > 0 else None,
+                                    hemoglobin=float(hemoglobin) if hemoglobin > 0 else None
+                                )
+                                session.add(new_lab_value)
+                        
+                        session.commit()
+                        
+                        # Actualizar session_state con nuevos valores
+                        st.session_state.patient_name = name
+                        st.session_state.patient_age = age
+                        st.session_state.patient_gender = gender
+                        st.session_state.patient_weight = weight
+                        st.session_state.patient_height = height
+                        st.session_state.patient_health_conditions = health_conditions
+                        st.session_state.patient_glucose = glucose
+                        st.session_state.patient_cholesterol = cholesterol
+                        st.session_state.patient_triglycerides = triglycerides
+                        st.session_state.patient_hemoglobin = hemoglobin
+                        
+                        st.success(f"✅ ¡Datos del paciente actualizados exitosamente! (ID: {patient.id})")
+                        session.close()
+                        
+                    else:
+                        st.error("No se encontró el paciente")
+                        session.close()
+                    
+                except Exception as e:
+                    st.error(f"Error al actualizar paciente: {str(e)}")
+                    if 'session' in locals():
+                        session.rollback()
+                        session.close()
 
 st.markdown("---")
 
