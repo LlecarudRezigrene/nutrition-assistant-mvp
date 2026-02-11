@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, DateTime, Text, ForeignKey, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -106,12 +107,7 @@ def init_db():
         """)
         st.stop()
 
-# Try to initialize database
-try:
-    Session = init_db()
-except Exception as e:
-    st.error(f"Error crítico al inicializar la aplicación: {str(e)}")
-    st.stop()
+Session = init_db()
 
 # Funciones auxiliares
 def calculate_bmi(weight, height):
@@ -121,10 +117,9 @@ def calculate_bmi(weight, height):
 
 def generate_diet_plan_openai(patient, lab_values, special_considerations, api_key):
     """Generar plan de dieta usando OpenAI"""
-    try:
-        client = OpenAI(api_key=api_key)
-        
-        prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
+    client = OpenAI(api_key=api_key)
+    
+    prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
 
 Información del Paciente:
 - Nombre: {patient.name}
@@ -154,24 +149,20 @@ Por favor crea un plan detallado de 7 días que incluya:
 
 Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en México."""
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=2500
-        )
-        
-        return response.choices[0].message.content
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+        max_tokens=2500
+    )
     
-    except Exception as e:
-        raise Exception(f"Error con OpenAI API: {str(e)}")
+    return response.choices[0].message.content
 
 def generate_diet_plan_anthropic(patient, lab_values, special_considerations, api_key):
     """Generar plan de dieta usando Anthropic Claude"""
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        
-        prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
+    client = anthropic.Anthropic(api_key=api_key)
+    
+    prompt = f"""Eres un nutriólogo experto mexicano. Crea un plan de alimentación integral y personalizado para el siguiente paciente:
 
 Información del Paciente:
 - Nombre: {patient.name}
@@ -201,16 +192,23 @@ Por favor crea un plan detallado de 7 días que incluya:
 
 Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en México."""
 
-        message = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=2500,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        return message.content[0].text
+    message = client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=2500,
+        messages=[{"role": "user", "content": prompt}]
+    )
     
-    except Exception as e:
-        raise Exception(f"Error con Anthropic API: {str(e)}")
+    return message.content[0].text
+
+def reset_form():
+    """Resetear todos los campos del formulario"""
+    keys_to_delete = [
+        'patient_created', 'plan_generated', 'current_patient_id', 
+        'current_plan', 'current_plan_id', 'load_existing_patient'
+    ]
+    for key in keys_to_delete:
+        if key in st.session_state:
+            del st.session_state[key]
 
 # Aplicación Principal
 st.title("🥗 Asistente de Nutrición con IA - MVP")
@@ -255,20 +253,83 @@ if 'current_plan' not in st.session_state:
     st.session_state.current_plan = None
 if 'current_plan_id' not in st.session_state:
     st.session_state.current_plan_id = None
+if 'load_existing_patient' not in st.session_state:
+    st.session_state.load_existing_patient = False
+
+# Sección 0: Buscar Paciente Existente
+st.header("🔍 Buscar Paciente Existente")
+
+session = Session()
+all_patients = session.query(Patient).order_by(Patient.created_at.desc()).all()
+session.close()
+
+if all_patients:
+    patient_options = {f"{p.name} (ID: {p.id}) - {p.age} años": p.id for p in all_patients}
+    patient_options = {"-- Crear Nuevo Paciente --": None, **patient_options}
+    
+    selected_patient = st.selectbox(
+        "Selecciona un paciente existente o crea uno nuevo",
+        options=list(patient_options.keys())
+    )
+    
+    if patient_options[selected_patient] is not None:
+        if st.button("📋 Cargar Paciente Seleccionado"):
+            session = Session()
+            patient = session.query(Patient).filter_by(id=patient_options[selected_patient]).first()
+            lab_values = session.query(LabValue).filter_by(patient_id=patient.id).order_by(LabValue.created_at.desc()).first()
+            
+            st.session_state.patient_created = True
+            st.session_state.current_patient_id = patient.id
+            st.session_state.load_existing_patient = True
+            
+            # Pre-cargar datos en session state
+            st.session_state.loaded_name = patient.name
+            st.session_state.loaded_age = patient.age
+            st.session_state.loaded_gender = patient.gender
+            st.session_state.loaded_weight = patient.weight
+            st.session_state.loaded_height = patient.height
+            st.session_state.loaded_health_conditions = ', '.join(patient.health_conditions) if patient.health_conditions else ''
+            
+            if lab_values:
+                st.session_state.loaded_glucose = lab_values.glucose or 0.0
+                st.session_state.loaded_cholesterol = lab_values.cholesterol or 0.0
+                st.session_state.loaded_triglycerides = lab_values.triglycerides or 0.0
+                st.session_state.loaded_hemoglobin = lab_values.hemoglobin or 0.0
+            
+            session.close()
+            st.success(f"✅ Paciente '{patient.name}' cargado exitosamente!")
+            st.rerun()
+
+st.markdown("---")
 
 # Sección 1: Información del Paciente
 st.header("1️⃣ Información del Paciente")
 
 col1, col2 = st.columns(2)
 
+# Pre-cargar valores si existe un paciente cargado
+default_name = st.session_state.get('loaded_name', '')
+default_age = st.session_state.get('loaded_age', 30)
+default_gender_map = {"male": "Masculino", "female": "Femenino", "other": "Otro"}
+default_gender = default_gender_map.get(st.session_state.get('loaded_gender', 'male'), "Masculino") if st.session_state.load_existing_patient else "Masculino"
+default_weight = st.session_state.get('loaded_weight', 70.0)
+default_height = st.session_state.get('loaded_height', 170.0)
+default_health_conditions = st.session_state.get('loaded_health_conditions', '')
+default_glucose = st.session_state.get('loaded_glucose', 0.0)
+default_cholesterol = st.session_state.get('loaded_cholesterol', 0.0)
+default_triglycerides = st.session_state.get('loaded_triglycerides', 0.0)
+default_hemoglobin = st.session_state.get('loaded_hemoglobin', 0.0)
+
 with col1:
-    name = st.text_input("Nombre *", key="name")
-    age = st.number_input("Edad *", min_value=1, max_value=120, value=30, key="age")
-    gender = st.selectbox("Género *", ["Masculino", "Femenino", "Otro"], key="gender")
+    name = st.text_input("Nombre *", value=default_name, key="name", disabled=st.session_state.load_existing_patient)
+    age = st.number_input("Edad *", min_value=1, max_value=120, value=default_age, key="age", disabled=st.session_state.load_existing_patient)
+    gender = st.selectbox("Género *", ["Masculino", "Femenino", "Otro"], 
+                         index=["Masculino", "Femenino", "Otro"].index(default_gender), 
+                         key="gender", disabled=st.session_state.load_existing_patient)
 
 with col2:
-    weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=70.0, step=0.1, key="weight")
-    height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=170.0, step=0.1, key="height")
+    weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=default_weight, step=0.1, key="weight", disabled=st.session_state.load_existing_patient)
+    height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=default_height, step=0.1, key="height", disabled=st.session_state.load_existing_patient)
     
     if weight and height:
         bmi = calculate_bmi(weight, height)
@@ -276,8 +337,10 @@ with col2:
 
 health_conditions = st.text_input(
     "Condiciones de Salud (separadas por comas)",
+    value=default_health_conditions,
     placeholder="ej: diabetes, hipertensión, enfermedad celíaca",
-    key="health_conditions"
+    key="health_conditions",
+    disabled=st.session_state.load_existing_patient
 )
 
 st.subheader("Resultados de Laboratorio")
@@ -285,66 +348,67 @@ st.subheader("Resultados de Laboratorio")
 col3, col4 = st.columns(2)
 
 with col3:
-    glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=0.0, step=0.1, key="glucose")
-    cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=0.0, step=0.1, key="cholesterol")
+    glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=default_glucose, step=0.1, key="glucose", disabled=st.session_state.load_existing_patient)
+    cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=default_cholesterol, step=0.1, key="cholesterol", disabled=st.session_state.load_existing_patient)
 
 with col4:
-    triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=0.0, step=0.1, key="triglycerides")
-    hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=0.0, step=0.1, key="hemoglobin")
+    triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=default_triglycerides, step=0.1, key="triglycerides", disabled=st.session_state.load_existing_patient)
+    hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=default_hemoglobin, step=0.1, key="hemoglobin", disabled=st.session_state.load_existing_patient)
 
-if st.button("💾 Crear Paciente y Guardar Datos", type="primary", disabled=st.session_state.patient_created):
-    if not name or not age or not weight or not height:
-        st.error("Por favor completa todos los campos requeridos (marcados con *)")
-    else:
-        try:
-            session = Session()
-            
-            # Crear paciente
-            conditions_list = [c.strip() for c in health_conditions.split(',')] if health_conditions else []
-            bmi_value = calculate_bmi(weight, height)
-            
-            # Convertir género a inglés para la base de datos
-            gender_map = {"Masculino": "male", "Femenino": "female", "Otro": "other"}
-            gender_db = gender_map.get(gender, "other")
-            
-            new_patient = Patient(
-                name=name,
-                age=int(age),
-                gender=gender_db,
-                weight=float(weight),
-                height=float(height),
-                health_conditions=conditions_list,
-                bmi=bmi_value
-            )
-            
-            session.add(new_patient)
-            session.commit()
-            session.refresh(new_patient)
-            
-            # Crear valores de laboratorio si se proporcionaron
-            if any([glucose, cholesterol, triglycerides, hemoglobin]):
-                lab_value = LabValue(
-                    patient_id=new_patient.id,
-                    test_date=datetime.now().strftime("%Y-%m-%d"),
-                    glucose=float(glucose) if glucose > 0 else None,
-                    cholesterol=float(cholesterol) if cholesterol > 0 else None,
-                    triglycerides=float(triglycerides) if triglycerides > 0 else None,
-                    hemoglobin=float(hemoglobin) if hemoglobin > 0 else None
+if not st.session_state.load_existing_patient:
+    if st.button("💾 Crear Paciente y Guardar Datos", type="primary", disabled=st.session_state.patient_created):
+        if not name or not age or not weight or not height:
+            st.error("Por favor completa todos los campos requeridos (marcados con *)")
+        else:
+            try:
+                session = Session()
+                
+                # Crear paciente
+                conditions_list = [c.strip() for c in health_conditions.split(',')] if health_conditions else []
+                bmi_value = calculate_bmi(weight, height)
+                
+                # Convertir género a inglés para la base de datos
+                gender_map = {"Masculino": "male", "Femenino": "female", "Otro": "other"}
+                gender_db = gender_map.get(gender, "other")
+                
+                new_patient = Patient(
+                    name=name,
+                    age=int(age),
+                    gender=gender_db,
+                    weight=float(weight),
+                    height=float(height),
+                    health_conditions=conditions_list,
+                    bmi=bmi_value
                 )
-                session.add(lab_value)
+                
+                session.add(new_patient)
                 session.commit()
-            
-            st.session_state.patient_created = True
-            st.session_state.current_patient_id = new_patient.id
-            
-            st.success(f"✅ ¡Paciente creado exitosamente! (ID: {new_patient.id})")
-            session.close()
-            
-        except Exception as e:
-            st.error(f"Error al crear paciente: {str(e)}")
-            if 'session' in locals():
-                session.rollback()
+                session.refresh(new_patient)
+                
+                # Crear valores de laboratorio si se proporcionaron
+                if any([glucose, cholesterol, triglycerides, hemoglobin]):
+                    lab_value = LabValue(
+                        patient_id=new_patient.id,
+                        test_date=datetime.now().strftime("%Y-%m-%d"),
+                        glucose=float(glucose) if glucose > 0 else None,
+                        cholesterol=float(cholesterol) if cholesterol > 0 else None,
+                        triglycerides=float(triglycerides) if triglycerides > 0 else None,
+                        hemoglobin=float(hemoglobin) if hemoglobin > 0 else None
+                    )
+                    session.add(lab_value)
+                    session.commit()
+                
+                st.session_state.patient_created = True
+                st.session_state.current_patient_id = new_patient.id
+                
+                st.success(f"✅ ¡Paciente creado exitosamente! (ID: {new_patient.id})")
                 session.close()
+                
+            except Exception as e:
+                st.error(f"Error al crear paciente: {str(e)}")
+                if 'session' in locals():
+                    session.rollback()
+                    session.close()
 
 st.markdown("---")
 
@@ -358,7 +422,7 @@ special_considerations = st.text_area(
     key="special_considerations"
 )
 
-if st.button("🤖 Generar Plan de Alimentación", type="primary", disabled=not st.session_state.patient_created or st.session_state.plan_generated):
+if st.button("🤖 Generar Plan de Alimentación", type="primary", disabled=not st.session_state.patient_created):
     if not st.session_state.patient_created:
         st.error("Por favor crea un paciente primero")
     else:
@@ -368,7 +432,7 @@ if st.button("🤖 Generar Plan de Alimentación", type="primary", disabled=not 
                 
                 # Obtener paciente y valores de laboratorio
                 patient = session.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
-                lab_values = session.query(LabValue).filter_by(patient_id=patient.id).first()
+                lab_values = session.query(LabValue).filter_by(patient_id=patient.id).order_by(LabValue.created_at.desc()).first()
                 
                 # Generar plan
                 if ai_provider == "OpenAI":
@@ -394,6 +458,7 @@ if st.button("🤖 Generar Plan de Alimentación", type="primary", disabled=not 
                 
                 st.success(f"✅ ¡Plan de alimentación generado exitosamente! (ID: {new_plan.id})")
                 session.close()
+                st.rerun()
                 
         except Exception as e:
             st.error(f"Error al generar plan: {str(e)}")
@@ -445,7 +510,7 @@ if st.session_state.plan_generated and st.session_state.current_plan:
                     
                     # Obtener paciente y valores de laboratorio
                     patient = session.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
-                    lab_values = session.query(LabValue).filter_by(patient_id=patient.id).first()
+                    lab_values = session.query(LabValue).filter_by(patient_id=patient.id).order_by(LabValue.created_at.desc()).first()
                     
                     # Crear prompt modificado
                     modified_considerations = f"{special_considerations}\n\nModificaciones solicitadas: {modifications}"
@@ -458,18 +523,21 @@ if st.session_state.plan_generated and st.session_state.current_plan:
                     
                     # Actualizar plan existente
                     existing_plan = session.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
-                    existing_plan.plan_details = new_plan_text
-                    existing_plan.special_considerations = modified_considerations
-                    existing_plan.updated_at = datetime.utcnow()
-                    
-                    session.commit()
-                    
-                    st.session_state.current_plan = new_plan_text
-                    
-                    st.success("✅ ¡Plan regenerado exitosamente!")
-                    st.rerun()
-                    
-                    session.close()
+                    if existing_plan:
+                        existing_plan.plan_details = new_plan_text
+                        existing_plan.special_considerations = modified_considerations
+                        existing_plan.updated_at = datetime.utcnow()
+                        
+                        session.commit()
+                        
+                        st.session_state.current_plan = new_plan_text
+                        
+                        st.success("✅ ¡Plan regenerado exitosamente!")
+                        session.close()
+                        st.rerun()
+                    else:
+                        st.error("No se encontró el plan para actualizar")
+                        session.close()
                     
             except Exception as e:
                 st.error(f"Error al regenerar plan: {str(e)}")
@@ -479,9 +547,5 @@ if st.session_state.plan_generated and st.session_state.current_plan:
 # Botón de reinicio (al final)
 st.markdown("---")
 if st.button("🔄 Iniciar Nuevo Paciente"):
-    st.session_state.patient_created = False
-    st.session_state.plan_generated = False
-    st.session_state.current_patient_id = None
-    st.session_state.current_plan = None
-    st.session_state.current_plan_id = None
+    reset_form()
     st.rerun()
