@@ -557,6 +557,145 @@ if st.button("🤖 Generar Plan de Alimentación", type="primary", disabled=not 
                 session.close()
 
 st.markdown("---")
+st.markdown("---")
+
+# Nueva Sección: Ver Planes Anteriores
+if st.session_state.patient_created and st.session_state.current_patient_id:
+    st.header("📚 Planes Anteriores")
+    
+    session = Session()
+    past_plans = session.query(DietPlan).filter_by(
+        patient_id=st.session_state.current_patient_id
+    ).order_by(DietPlan.created_at.desc()).all()
+    session.close()
+    
+    if past_plans:
+        st.info(f"Este paciente tiene {len(past_plans)} plan(es) guardado(s)")
+        
+        # Create tabs for each plan
+        if len(past_plans) == 1:
+            # If only one plan, just show it directly
+            plan = past_plans[0]
+            with st.expander(f"📋 Plan creado el {plan.created_at.strftime('%d/%m/%Y %H:%M')}", expanded=False):
+                st.markdown(f"**ID del Plan:** {plan.id}")
+                st.markdown(f"**Estado:** {plan.status}")
+                st.markdown(f"**Fecha de creación:** {plan.created_at.strftime('%d de %B de %Y a las %H:%M')}")
+                st.markdown(f"**Última actualización:** {plan.updated_at.strftime('%d de %B de %Y a las %H:%M')}")
+                
+                if plan.special_considerations:
+                    st.markdown("**Consideraciones Especiales:**")
+                    st.text(plan.special_considerations)
+                
+                st.markdown("---")
+                st.markdown("**Contenido del Plan:**")
+                st.text_area(
+                    "Plan",
+                    value=plan.plan_details,
+                    height=300,
+                    disabled=True,
+                    key=f"past_plan_{plan.id}"
+                )
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.download_button(
+                        label="📥 Descargar",
+                        data=plan.plan_details,
+                        file_name=f"plan_{plan.id}_{plan.created_at.strftime('%Y%m%d')}.txt",
+                        mime="text/plain",
+                        key=f"download_past_{plan.id}"
+                    )
+                with col2:
+                    if st.button("🔄 Cargar para Editar", key=f"load_plan_{plan.id}"):
+                        st.session_state.current_plan = plan.plan_details
+                        st.session_state.current_plan_id = plan.id
+                        st.session_state.plan_generated = True
+                        st.success("Plan cargado para editar")
+                        st.rerun()
+                with col3:
+                    if st.button("🗑️ Eliminar Plan", key=f"delete_plan_{plan.id}", type="secondary"):
+                        try:
+                            session = Session()
+                            plan_to_delete = session.query(DietPlan).filter_by(id=plan.id).first()
+                            if plan_to_delete:
+                                session.delete(plan_to_delete)
+                                session.commit()
+                                st.success("Plan eliminado exitosamente")
+                                session.close()
+                                st.rerun()
+                            else:
+                                st.error("Plan no encontrado")
+                                session.close()
+                        except Exception as e:
+                            st.error(f"Error al eliminar plan: {str(e)}")
+                            if 'session' in locals():
+                                session.rollback()
+                                session.close()
+        else:
+            # Multiple plans - use expanders
+            for idx, plan in enumerate(past_plans):
+                with st.expander(
+                    f"📋 Plan #{idx + 1} - Creado el {plan.created_at.strftime('%d/%m/%Y %H:%M')}", 
+                    expanded=(idx == 0)  # First plan expanded by default
+                ):
+                    st.markdown(f"**ID del Plan:** {plan.id}")
+                    st.markdown(f"**Estado:** {plan.status}")
+                    st.markdown(f"**Fecha de creación:** {plan.created_at.strftime('%d de %B de %Y a las %H:%M')}")
+                    st.markdown(f"**Última actualización:** {plan.updated_at.strftime('%d de %B de %Y a las %H:%M')}")
+                    
+                    if plan.special_considerations:
+                        st.markdown("**Consideraciones Especiales:**")
+                        st.text(plan.special_considerations)
+                    
+                    st.markdown("---")
+                    st.markdown("**Contenido del Plan:**")
+                    st.text_area(
+                        "Plan",
+                        value=plan.plan_details,
+                        height=300,
+                        disabled=True,
+                        key=f"past_plan_{plan.id}"
+                    )
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.download_button(
+                            label="📥 Descargar",
+                            data=plan.plan_details,
+                            file_name=f"plan_{plan.id}_{plan.created_at.strftime('%Y%m%d')}.txt",
+                            mime="text/plain",
+                            key=f"download_past_{plan.id}"
+                        )
+                    with col2:
+                        if st.button("🔄 Cargar para Editar", key=f"load_plan_{plan.id}"):
+                            st.session_state.current_plan = plan.plan_details
+                            st.session_state.current_plan_id = plan.id
+                            st.session_state.plan_generated = True
+                            st.success("Plan cargado para editar")
+                            st.rerun()
+                    with col3:
+                        if st.button("🗑️ Eliminar Plan", key=f"delete_plan_{plan.id}", type="secondary"):
+                            try:
+                                session = Session()
+                                plan_to_delete = session.query(DietPlan).filter_by(id=plan.id).first()
+                                if plan_to_delete:
+                                    session.delete(plan_to_delete)
+                                    session.commit()
+                                    st.success("Plan eliminado exitosamente")
+                                    session.close()
+                                    st.rerun()
+                                else:
+                                    st.error("Plan no encontrado")
+                                    session.close()
+                            except Exception as e:
+                                st.error(f"Error al eliminar plan: {str(e)}")
+                                if 'session' in locals():
+                                    session.rollback()
+                                    session.close()
+    else:
+        st.info("Este paciente no tiene planes guardados aún. Genera uno en la sección de abajo.")
+
+st.markdown("---")
 
 # Sección 3: Plan Generado y Modificaciones
 if st.session_state.plan_generated and st.session_state.current_plan:
