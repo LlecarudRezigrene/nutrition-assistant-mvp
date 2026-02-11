@@ -377,6 +377,7 @@ with st.sidebar:
     st.caption(f"Tienes {example_count} plan(es) de ejemplo guardado(s)")
 
 # Modal para agregar ejemplo (fuera del sidebar)
+# Modal para agregar ejemplo (fuera del sidebar)
 if st.session_state.get('show_add_example', False):
     st.markdown("---")
     st.header("➕ Agregar Plan de Ejemplo")
@@ -395,8 +396,19 @@ if st.session_state.get('show_add_example', False):
             placeholder="ej: diabetes, sobrepeso, sedentario, hipertensión"
         )
         
+        # File upload option
+        st.markdown("**Opción 1: Subir Archivo**")
+        uploaded_file = st.file_uploader(
+            "Sube un archivo con el plan de ejemplo",
+            type=['txt', 'md', 'docx', 'pdf'],
+            help="Formatos soportados: .txt, .md, .docx, .pdf"
+        )
+        
+        st.markdown("**O**")
+        st.markdown("**Opción 2: Pegar Texto Directamente**")
+        
         example_content = st.text_area(
-            "Contenido del Plan *",
+            "Contenido del Plan",
             placeholder="Pega aquí un plan de ejemplo completo que quieras usar como referencia...",
             height=400
         )
@@ -408,8 +420,47 @@ if st.session_state.get('show_add_example', False):
             cancelled = st.form_submit_button("❌ Cancelar")
         
         if submitted:
-            if not example_title or not example_profile or not example_tags_input or not example_content:
-                st.error("Por favor completa todos los campos marcados con *")
+            # Extract content from file or text area
+            final_content = ""
+            
+            if uploaded_file is not None:
+                # Process uploaded file
+                try:
+                    file_extension = uploaded_file.name.split('.')[-1].lower()
+                    
+                    if file_extension in ['txt', 'md']:
+                        # Read text files directly
+                        final_content = uploaded_file.read().decode('utf-8')
+                        
+                    elif file_extension == 'docx':
+                        # Read Word documents
+                        import docx
+                        doc = docx.Document(uploaded_file)
+                        final_content = '\n'.join([paragraph.text for paragraph in doc.paragraphs])
+                        
+                    elif file_extension == 'pdf':
+                        # Read PDF files
+                        import PyPDF2
+                        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+                        final_content = ''
+                        for page in pdf_reader.pages:
+                            final_content += page.extract_text() + '\n'
+                    
+                    st.info(f"✅ Archivo '{uploaded_file.name}' procesado exitosamente")
+                    
+                except Exception as e:
+                    st.error(f"Error al procesar archivo: {str(e)}")
+                    final_content = ""
+                    
+            elif example_content:
+                # Use pasted text
+                final_content = example_content
+            
+            # Validate all fields
+            if not example_title or not example_profile or not example_tags_input:
+                st.error("Por favor completa el título, perfil del paciente y etiquetas")
+            elif not final_content:
+                st.error("Por favor sube un archivo O pega el contenido del plan")
             else:
                 try:
                     session = Session()
@@ -420,7 +471,7 @@ if st.session_state.get('show_add_example', False):
                     new_example = ExamplePlan(
                         title=example_title,
                         patient_profile=example_profile,
-                        plan_content=example_content,
+                        plan_content=final_content,
                         tags=tags_list
                     )
                     
