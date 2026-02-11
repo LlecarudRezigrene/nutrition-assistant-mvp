@@ -267,50 +267,88 @@ all_patients = session.query(Patient).order_by(Patient.created_at.desc()).all()
 session.close()
 
 if all_patients:
-    patient_options = {f"{p.name} (ID: {p.id}) - {p.age} años": p.id for p in all_patients}
-    patient_options = {"-- Crear Nuevo Paciente --": None, **patient_options}
+    patient_options = {"-- Crear Nuevo Paciente --": None}
+    for p in all_patients:
+        patient_options[f"{p.name} (ID: {p.id}) - {p.age} años"] = p.id
+    
+    # Initialize selected patient key if not exists
+    if 'selected_patient_key' not in st.session_state:
+        st.session_state.selected_patient_key = "-- Crear Nuevo Paciente --"
     
     selected_patient = st.selectbox(
         "Selecciona un paciente existente o crea uno nuevo",
-        options=list(patient_options.keys())
+        options=list(patient_options.keys()),
+        key="patient_selector"
     )
     
-    if patient_options[selected_patient] is not None:
-        if st.button("📋 Cargar Paciente Seleccionado"):
+    selected_patient_id = patient_options[selected_patient]
+    
+    # Check if selection changed
+    if selected_patient_id != st.session_state.get('current_patient_id'):
+        if selected_patient_id is not None:
+            # Load patient data
             session = Session()
-            patient = session.query(Patient).filter_by(id=patient_options[selected_patient]).first()
+            patient = session.query(Patient).filter_by(id=selected_patient_id).first()
             lab_values = session.query(LabValue).filter_by(patient_id=patient.id).order_by(LabValue.created_at.desc()).first()
             
-            # Guardar datos del paciente en session_state
-            st.session_state.patient_created = True
-            st.session_state.current_patient_id = patient.id
-            st.session_state.load_existing_patient = True
-            
-            # Guardar género mapeado
-            gender_map_reverse = {"male": "Masculino", "female": "Femenino", "other": "Otro"}
-            
-            # Guardar toda la información
-            st.session_state.patient_name = patient.name
-            st.session_state.patient_age = patient.age
-            st.session_state.patient_gender = gender_map_reverse.get(patient.gender, "Masculino")
-            st.session_state.patient_weight = patient.weight
-            st.session_state.patient_height = patient.height
-            st.session_state.patient_health_conditions = ', '.join(patient.health_conditions) if patient.health_conditions else ''
-            
-            if lab_values:
-                st.session_state.patient_glucose = lab_values.glucose if lab_values.glucose else 0.0
-                st.session_state.patient_cholesterol = lab_values.cholesterol if lab_values.cholesterol else 0.0
-                st.session_state.patient_triglycerides = lab_values.triglycerides if lab_values.triglycerides else 0.0
-                st.session_state.patient_hemoglobin = lab_values.hemoglobin if lab_values.hemoglobin else 0.0
-            else:
-                st.session_state.patient_glucose = 0.0
-                st.session_state.patient_cholesterol = 0.0
-                st.session_state.patient_triglycerides = 0.0
-                st.session_state.patient_hemoglobin = 0.0
-            
-            session.close()
-            st.success(f"✅ Paciente '{patient.name}' cargado exitosamente!")
-            st.rerun()
+            if patient:
+                # Guardar datos del paciente en session_state
+                st.session_state.patient_created = True
+                st.session_state.current_patient_id = patient.id
+                st.session_state.load_existing_patient = True
+                
+                # Guardar género mapeado
+                gender_map_reverse = {"male": "Masculino", "female": "Femenino", "other": "Otro"}
+                
+                # Guardar toda la información
+                st.session_state.patient_name = patient.name
+                st.session_state.patient_age = patient.age
+                st.session_state.patient_gender = gender_map_reverse.get(patient.gender, "Masculino")
+                st.session_state.patient_weight = patient.weight
+                st.session_state.patient_height = patient.height
+                st.session_state.patient_health_conditions = ', '.join(patient.health_conditions) if patient.health_conditions else ''
+                
+                if lab_values:
+                    st.session_state.patient_glucose = lab_values.glucose if lab_values.glucose else 0.0
+                    st.session_state.patient_cholesterol = lab_values.cholesterol if lab_values.cholesterol else 0.0
+                    st.session_state.patient_triglycerides = lab_values.triglycerides if lab_values.triglycerides else 0.0
+                    st.session_state.patient_hemoglobin = lab_values.hemoglobin if lab_values.hemoglobin else 0.0
+                else:
+                    st.session_state.patient_glucose = 0.0
+                    st.session_state.patient_cholesterol = 0.0
+                    st.session_state.patient_triglycerides = 0.0
+                    st.session_state.patient_hemoglobin = 0.0
+                
+                session.close()
+                st.success(f"✅ Paciente '{patient.name}' cargado exitosamente!")
+                st.rerun()
+        else:
+            # "Crear Nuevo Paciente" was selected
+            if st.session_state.get('load_existing_patient', False):
+                # Clear patient data
+                st.session_state.patient_created = False
+                st.session_state.current_patient_id = None
+                st.session_state.load_existing_patient = False
+                st.session_state.plan_generated = False
+                st.session_state.current_plan = None
+                st.session_state.current_plan_id = None
+                
+                # Clear patient fields
+                for key in ['patient_name', 'patient_age', 'patient_gender', 'patient_weight',
+                           'patient_height', 'patient_health_conditions', 'patient_glucose',
+                           'patient_cholesterol', 'patient_triglycerides', 'patient_hemoglobin']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                st.info("📝 Modo: Crear nuevo paciente")
+                st.rerun()
+    
+    # Show current status
+    if st.session_state.load_existing_patient and st.session_state.current_patient_id:
+        st.info(f"📋 Paciente actual: {st.session_state.get('patient_name', 'Desconocido')} (ID: {st.session_state.current_patient_id})")
+    else:
+        st.info("📝 Modo: Crear nuevo paciente")
+        
 else:
     st.info("No hay pacientes en la base de datos. Crea uno nuevo abajo.")
 
