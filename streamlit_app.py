@@ -204,7 +204,10 @@ def reset_form():
     """Resetear todos los campos del formulario"""
     keys_to_delete = [
         'patient_created', 'plan_generated', 'current_patient_id', 
-        'current_plan', 'current_plan_id', 'load_existing_patient'
+        'current_plan', 'current_plan_id', 'load_existing_patient',
+        'patient_name', 'patient_age', 'patient_gender', 'patient_weight',
+        'patient_height', 'patient_health_conditions', 'patient_glucose',
+        'patient_cholesterol', 'patient_triglycerides', 'patient_hemoglobin'
     ]
     for key in keys_to_delete:
         if key in st.session_state:
@@ -278,27 +281,38 @@ if all_patients:
             patient = session.query(Patient).filter_by(id=patient_options[selected_patient]).first()
             lab_values = session.query(LabValue).filter_by(patient_id=patient.id).order_by(LabValue.created_at.desc()).first()
             
+            # Guardar datos del paciente en session_state
             st.session_state.patient_created = True
             st.session_state.current_patient_id = patient.id
             st.session_state.load_existing_patient = True
             
-            # Pre-cargar datos en session state
-            st.session_state.loaded_name = patient.name
-            st.session_state.loaded_age = patient.age
-            st.session_state.loaded_gender = patient.gender
-            st.session_state.loaded_weight = patient.weight
-            st.session_state.loaded_height = patient.height
-            st.session_state.loaded_health_conditions = ', '.join(patient.health_conditions) if patient.health_conditions else ''
+            # Guardar género mapeado
+            gender_map_reverse = {"male": "Masculino", "female": "Femenino", "other": "Otro"}
+            
+            # Guardar toda la información
+            st.session_state.patient_name = patient.name
+            st.session_state.patient_age = patient.age
+            st.session_state.patient_gender = gender_map_reverse.get(patient.gender, "Masculino")
+            st.session_state.patient_weight = patient.weight
+            st.session_state.patient_height = patient.height
+            st.session_state.patient_health_conditions = ', '.join(patient.health_conditions) if patient.health_conditions else ''
             
             if lab_values:
-                st.session_state.loaded_glucose = lab_values.glucose or 0.0
-                st.session_state.loaded_cholesterol = lab_values.cholesterol or 0.0
-                st.session_state.loaded_triglycerides = lab_values.triglycerides or 0.0
-                st.session_state.loaded_hemoglobin = lab_values.hemoglobin or 0.0
+                st.session_state.patient_glucose = lab_values.glucose if lab_values.glucose else 0.0
+                st.session_state.patient_cholesterol = lab_values.cholesterol if lab_values.cholesterol else 0.0
+                st.session_state.patient_triglycerides = lab_values.triglycerides if lab_values.triglycerides else 0.0
+                st.session_state.patient_hemoglobin = lab_values.hemoglobin if lab_values.hemoglobin else 0.0
+            else:
+                st.session_state.patient_glucose = 0.0
+                st.session_state.patient_cholesterol = 0.0
+                st.session_state.patient_triglycerides = 0.0
+                st.session_state.patient_hemoglobin = 0.0
             
             session.close()
             st.success(f"✅ Paciente '{patient.name}' cargado exitosamente!")
             st.rerun()
+else:
+    st.info("No hay pacientes en la base de datos. Crea uno nuevo abajo.")
 
 st.markdown("---")
 
@@ -307,29 +321,39 @@ st.header("1️⃣ Información del Paciente")
 
 col1, col2 = st.columns(2)
 
-# Pre-cargar valores si existe un paciente cargado
-default_name = st.session_state.get('loaded_name', '')
-default_age = st.session_state.get('loaded_age', 30)
-default_gender_map = {"male": "Masculino", "female": "Femenino", "other": "Otro"}
-default_gender = default_gender_map.get(st.session_state.get('loaded_gender', 'male'), "Masculino") if st.session_state.load_existing_patient else "Masculino"
-default_weight = st.session_state.get('loaded_weight', 70.0)
-default_height = st.session_state.get('loaded_height', 170.0)
-default_health_conditions = st.session_state.get('loaded_health_conditions', '')
-default_glucose = st.session_state.get('loaded_glucose', 0.0)
-default_cholesterol = st.session_state.get('loaded_cholesterol', 0.0)
-default_triglycerides = st.session_state.get('loaded_triglycerides', 0.0)
-default_hemoglobin = st.session_state.get('loaded_hemoglobin', 0.0)
+# Determinar valores por defecto basados en si hay un paciente cargado
+if st.session_state.load_existing_patient:
+    default_name = st.session_state.get('patient_name', '')
+    default_age = st.session_state.get('patient_age', 30)
+    default_gender = st.session_state.get('patient_gender', 'Masculino')
+    default_weight = st.session_state.get('patient_weight', 70.0)
+    default_height = st.session_state.get('patient_height', 170.0)
+    default_health_conditions = st.session_state.get('patient_health_conditions', '')
+    default_glucose = st.session_state.get('patient_glucose', 0.0)
+    default_cholesterol = st.session_state.get('patient_cholesterol', 0.0)
+    default_triglycerides = st.session_state.get('patient_triglycerides', 0.0)
+    default_hemoglobin = st.session_state.get('patient_hemoglobin', 0.0)
+else:
+    default_name = ''
+    default_age = 30
+    default_gender = 'Masculino'
+    default_weight = 70.0
+    default_height = 170.0
+    default_health_conditions = ''
+    default_glucose = 0.0
+    default_cholesterol = 0.0
+    default_triglycerides = 0.0
+    default_hemoglobin = 0.0
 
 with col1:
-    name = st.text_input("Nombre *", value=default_name, key="name", disabled=st.session_state.load_existing_patient)
-    age = st.number_input("Edad *", min_value=1, max_value=120, value=default_age, key="age", disabled=st.session_state.load_existing_patient)
-    gender = st.selectbox("Género *", ["Masculino", "Femenino", "Otro"], 
-                         index=["Masculino", "Femenino", "Otro"].index(default_gender), 
-                         key="gender", disabled=st.session_state.load_existing_patient)
+    name = st.text_input("Nombre *", value=default_name, disabled=st.session_state.load_existing_patient)
+    age = st.number_input("Edad *", min_value=1, max_value=120, value=int(default_age), disabled=st.session_state.load_existing_patient)
+    gender_index = ["Masculino", "Femenino", "Otro"].index(default_gender)
+    gender = st.selectbox("Género *", ["Masculino", "Femenino", "Otro"], index=gender_index, disabled=st.session_state.load_existing_patient)
 
 with col2:
-    weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=default_weight, step=0.1, key="weight", disabled=st.session_state.load_existing_patient)
-    height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=default_height, step=0.1, key="height", disabled=st.session_state.load_existing_patient)
+    weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=float(default_weight), step=0.1, disabled=st.session_state.load_existing_patient)
+    height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=float(default_height), step=0.1, disabled=st.session_state.load_existing_patient)
     
     if weight and height:
         bmi = calculate_bmi(weight, height)
@@ -339,7 +363,6 @@ health_conditions = st.text_input(
     "Condiciones de Salud (separadas por comas)",
     value=default_health_conditions,
     placeholder="ej: diabetes, hipertensión, enfermedad celíaca",
-    key="health_conditions",
     disabled=st.session_state.load_existing_patient
 )
 
@@ -348,13 +371,18 @@ st.subheader("Resultados de Laboratorio")
 col3, col4 = st.columns(2)
 
 with col3:
-    glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=default_glucose, step=0.1, key="glucose", disabled=st.session_state.load_existing_patient)
-    cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=default_cholesterol, step=0.1, key="cholesterol", disabled=st.session_state.load_existing_patient)
+    glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=float(default_glucose), step=0.1, disabled=st.session_state.load_existing_patient)
+    cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=float(default_cholesterol), step=0.1, disabled=st.session_state.load_existing_patient)
 
 with col4:
-    triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=default_triglycerides, step=0.1, key="triglycerides", disabled=st.session_state.load_existing_patient)
-    hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=default_hemoglobin, step=0.1, key="hemoglobin", disabled=st.session_state.load_existing_patient)
+    triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=float(default_triglycerides), step=0.1, disabled=st.session_state.load_existing_patient)
+    hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=float(default_hemoglobin), step=0.1, disabled=st.session_state.load_existing_patient)
 
+# Mostrar mensaje si el paciente fue cargado
+if st.session_state.load_existing_patient:
+    st.info(f"📋 Paciente cargado: {default_name} (ID: {st.session_state.current_patient_id})")
+
+# Solo mostrar botón de crear si NO hay paciente cargado
 if not st.session_state.load_existing_patient:
     if st.button("💾 Crear Paciente y Guardar Datos", type="primary", disabled=st.session_state.patient_created):
         if not name or not age or not weight or not height:
