@@ -933,7 +933,8 @@ if st.session_state.plan_generated and st.session_state.current_plan:
 # ── Back to top ──
 st.markdown("---")
 st.markdown(
-    '<a href="#asistente-de-nutrici-n-con-ia-mvp" style="text-decoration:none;">'
+    '<a href="javascript:void(0)" onclick="window.parent.document.querySelector(\'section.main\').scrollTo(0,0)" '
+    'style="text-decoration:none; font-size:1.1em;">'
     '⬆️ Volver al inicio para seleccionar o crear otro paciente</a>',
     unsafe_allow_html=True,
 )
