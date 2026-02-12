@@ -1,5 +1,7 @@
 import streamlit as st
 import os
+import hashlib
+import hmac
 from contextlib import contextmanager
 from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, DateTime, Text, ForeignKey, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
@@ -15,6 +17,61 @@ st.set_page_config(
     page_icon="🥗",
     layout="wide",
 )
+
+# ──────────────────────────────────────────────
+# Authentication
+# ──────────────────────────────────────────────
+# Add credentials in .streamlit/secrets.toml:
+#
+# [auth]
+# username = "your_username"
+# password_hash = "paste_the_sha256_hash_here"
+#
+# Generate a hash with:
+#   python -c "import hashlib; print(hashlib.sha256('YOUR_PASSWORD'.encode()).hexdigest())"
+
+
+def _check_credentials(username: str, password: str) -> bool:
+    """Compare credentials against secrets using constant-time comparison."""
+    try:
+        stored_user = st.secrets["auth"]["username"]
+        stored_hash = st.secrets["auth"]["password_hash"]
+    except KeyError:
+        st.error("❌ Credenciales no configuradas en secrets. Agrega [auth] con username y password_hash.")
+        return False
+
+    password_hash = hashlib.sha256(password.encode()).hexdigest()
+    user_ok = hmac.compare_digest(username, stored_user)
+    pass_ok = hmac.compare_digest(password_hash, stored_hash)
+    return user_ok and pass_ok
+
+
+def login_page():
+    """Render login form and return True if authenticated."""
+    if st.session_state.get("authenticated"):
+        return True
+
+    st.title("🥗 Asistente de Nutrición con IA")
+    st.markdown("---")
+    st.subheader("🔐 Iniciar Sesión")
+
+    with st.form("login_form"):
+        username = st.text_input("Usuario")
+        password = st.text_input("Contraseña", type="password")
+        submitted = st.form_submit_button("Entrar", type="primary")
+
+    if submitted:
+        if _check_credentials(username, password):
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("❌ Usuario o contraseña incorrectos")
+
+    return False
+
+
+if not login_page():
+    st.stop()
 
 # ──────────────────────────────────────────────
 # Constants
@@ -468,6 +525,11 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption("Tu API key solo se usa para esta sesión y nunca se almacena.")
+
+    st.markdown("---")
+    if st.button("🚪 Cerrar Sesión"):
+        st.session_state.clear()
+        st.rerun()
 
 # Gate: require API key
 if not api_key:
