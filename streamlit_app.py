@@ -930,8 +930,10 @@ if st.session_state.plan_generated and st.session_state.current_plan:
         except Exception as e:
             st.error(f"Error al regenerar plan: {e}")
 
-# ── Reset button ──
+# ── Back to top ──
 st.markdown("---")
-if st.button("🔄 Iniciar Nuevo Paciente"):
-    reset_form()
-    st.rerun()
+st.markdown(
+    '<a href="#asistente-de-nutrici-n-con-ia-mvp" style="text-decoration:none;">'
+    '⬆️ Volver al inicio para seleccionar o crear otro paciente</a>',
+    unsafe_allow_html=True,
+)
