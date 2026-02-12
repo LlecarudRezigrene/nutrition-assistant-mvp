@@ -342,9 +342,8 @@ def init_session_state():
 
 
 def reset_form():
-    for key in list(_DEFAULT_STATE.keys()) + list(_PATIENT_FIELDS.keys()):
-        if key in st.session_state:
-            del st.session_state[key]
+    for key, default in {**_DEFAULT_STATE, **_PATIENT_FIELDS}.items():
+        st.session_state[key] = default
 
 
 def load_patient_into_state(patient, lab_values):
