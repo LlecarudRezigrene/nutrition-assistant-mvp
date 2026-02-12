@@ -930,11 +930,6 @@ if st.session_state.plan_generated and st.session_state.current_plan:
         except Exception as e:
             st.error(f"Error al regenerar plan: {e}")
 
-# ── Back to top ──
+# ── Footer ──
 st.markdown("---")
-st.markdown(
-    '<a href="javascript:void(0)" onclick="window.parent.document.querySelector(\'section.main\').scrollTo(0,0)" '
-    'style="text-decoration:none; font-size:1.1em;">'
-    '⬆️ Volver al inicio para seleccionar o crear otro paciente</a>',
-    unsafe_allow_html=True,
-)
+st.caption("💡 Para seleccionar o crear otro paciente, usa el selector en la parte superior de la página.")
