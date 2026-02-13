@@ -336,16 +336,15 @@ Por favor crea un plan detallado que incluya:
 "SAL: Modere el consumo de sal, alimentos salados o envasados. Puede utilizar 
 hierbas, especias, ajo, cebolla ó limón para sazonar." 
 6. Una secciòn llamada "ELIMINE   DE   SU  DIETA  LOS   SIGUIENTES   ALIMENTOS: " con recomendacion de alimentos a no incluir, por ejemplo:
- - - - - - - 
-Azúcar 
+"Azúcar 
 Frijoles, lentejas, habas, garbanzos, soya,  
 Jugos naturales 
 Yogurt saborizados 
 Pancita, hígado, mollejas, y cualquier tipo de vísceras. Chicharrón, 
 tocino, chorizo, salchicha. 
 Refrescos y jugos industrializados 
-Pastelillos
-
+Pastelillos" las recomendaciones deben estar alineados a los padecimientos del paciente y recomendaciones nutricionales
+Utiliza como referencia las guias Kadoqui de la academia Mexicana, las guias KDIGO
 Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en México."""
 
 
