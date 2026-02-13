@@ -6,3 +6,5 @@ anthropic
 python-docx
 PyPDF2
 pandas
+supabase
+PyPDF2
