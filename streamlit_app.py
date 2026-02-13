@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import io
 import hashlib
 import hmac
 from contextlib import contextmanager
@@ -9,6 +10,7 @@ from datetime import datetime, timezone
 import pandas as pd
 from openai import OpenAI
 import anthropic
+from supabase import create_client as create_supabase_client
 
 # ──────────────────────────────────────────────
 # Page config (must be first Streamlit call)
@@ -209,6 +211,66 @@ def get_db():
 
 
 # ──────────────────────────────────────────────
+# Supabase Storage: reference documents
+# ──────────────────────────────────────────────
+# Add to your Streamlit secrets:
+#
+# SUPABASE_URL = "https://xxxxx.supabase.co"
+# SUPABASE_SERVICE_KEY = "eyJ..."
+#
+# Then create a bucket called "reference-docs" in your
+# Supabase dashboard and upload your PDF files there.
+
+REFERENCE_BUCKET = "reference-docs"
+
+
+@st.cache_resource
+def get_supabase_client():
+    """Initialise Supabase client for storage access."""
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_SERVICE_KEY"]
+        return create_supabase_client(url, key)
+    except KeyError:
+        return None  # Supabase storage not configured — skip gracefully
+
+
+@st.cache_data(ttl=3600)
+def load_reference_documents() -> dict[str, str]:
+    """
+    Download all PDFs from the reference-docs bucket and extract text.
+    Cached for 1 hour to avoid re-downloading on every rerun.
+    Returns a dict of {filename: extracted_text}.
+    """
+    client = get_supabase_client()
+    if client is None:
+        return {}
+
+    try:
+        import PyPDF2
+
+        files = client.storage.from_(REFERENCE_BUCKET).list()
+        pdf_files = [f for f in files if f["name"].lower().endswith(".pdf")]
+
+        docs = {}
+        for pdf_file in pdf_files:
+            try:
+                data = client.storage.from_(REFERENCE_BUCKET).download(pdf_file["name"])
+                reader = PyPDF2.PdfReader(io.BytesIO(data))
+                text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                if text.strip():
+                    docs[pdf_file["name"]] = text.strip()
+            except Exception as e:
+                st.warning(f"⚠️ No se pudo leer '{pdf_file['name']}': {e}")
+
+        return docs
+
+    except Exception as e:
+        st.warning(f"⚠️ Error al cargar documentos de referencia: {e}")
+        return {}
+
+
+# ──────────────────────────────────────────────
 # Helper functions
 # ──────────────────────────────────────────────
 def calculate_bmi(weight_kg: float, height_cm: float) -> float:
@@ -303,6 +365,16 @@ def _build_diet_prompt(patient, lab_values, special_considerations, relevant_exa
                 f"Plan:\n{ex.plan_content}\n\n"
             )
 
+    # Load reference documents from Supabase Storage
+    reference_text = ""
+    ref_docs = load_reference_documents()
+    if ref_docs:
+        reference_text = "\n\nDOCUMENTOS DE REFERENCIA NUTRICIONAL (usa estas tablas y guías para fundamentar las porciones y raciones):\n\n"
+        for filename, content in ref_docs.items():
+            # Truncate each doc to avoid exceeding token limits
+            truncated = content[:3000] + ("..." if len(content) > 3000 else "")
+            reference_text += f"--- {filename} ---\n{truncated}\n\n"
+
     conditions = ", ".join(patient.health_conditions) if patient.health_conditions else "Ninguna"
     safe_considerations = _sanitise_for_prompt(special_considerations) if special_considerations else "Ninguna"
 
@@ -324,6 +396,8 @@ Resultados de Laboratorio:
 - Hemoglobina: {_lab_value_or_na(lab_values, 'hemoglobin')} g/dL
 
 Consideraciones Especiales: {safe_considerations}
+{reference_text}
+{"IMPORTANTE: Basa las porciones y raciones en los documentos de referencia nutricional proporcionados." if ref_docs else ""}
 {examples_text}
 {"IMPORTANTE: Usa los ejemplos de referencia como guía para el estilo, formato y estructura del plan. Adapta el contenido específicamente para este paciente, pero mantén un estilo similar." if relevant_examples else ""}
 
@@ -333,18 +407,17 @@ Por favor crea un plan detallado que incluya:
 3. Comida con opciones variadas y multiples ejemplos
 4. Cena con opciones variadas y multiples ejemplos
 5. Siempre incluye lo siguiente:
-"SAL: Modere el consumo de sal, alimentos salados o envasados. Puede utilizar 
-hierbas, especias, ajo, cebolla ó limón para sazonar." 
-6. Una secciòn llamada "ELIMINE   DE   SU  DIETA  LOS   SIGUIENTES   ALIMENTOS: " con recomendacion de alimentos a no incluir, por ejemplo:
-"Azúcar 
-Frijoles, lentejas, habas, garbanzos, soya,  
-Jugos naturales 
-Yogurt saborizados 
-Pancita, hígado, mollejas, y cualquier tipo de vísceras. Chicharrón, 
-tocino, chorizo, salchicha. 
-Refrescos y jugos industrializados 
-Pastelillos" las recomendaciones deben estar alineados a los padecimientos del paciente y recomendaciones nutricionales
-Utiliza como referencia las guias Kadoqui de la academia Mexicana, las guias KDIGO
+"SAL: Modere el consumo de sal, alimentos salados o envasados. Puede utilizar hierbas, especias, ajo, cebolla ó limón para sazonar."
+6. Una sección llamada "ELIMINE DE SU DIETA LOS SIGUIENTES ALIMENTOS:" con recomendación de alimentos a no incluir, por ejemplo:
+"Azúcar
+Frijoles, lentejas, habas, garbanzos, soya,
+Jugos naturales
+Yogurt saborizados
+Pancita, hígado, mollejas, y cualquier tipo de vísceras. Chicharrón, tocino, chorizo, salchicha.
+Refrescos y jugos industrializados
+Pastelillos"
+Las recomendaciones deben estar alineadas a los padecimientos del paciente y recomendaciones nutricionales.
+Utiliza como referencia las guías KDOQI de la Academia Mexicana, las guías KDIGO.
 Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en México."""
 
 
@@ -562,6 +635,17 @@ with st.sidebar:
     with get_db() as session:
         example_count = session.query(ExamplePlan).count()
     st.caption(f"Tienes {example_count} plan(es) de ejemplo guardado(s)")
+
+    # Reference documents status
+    st.markdown("---")
+    st.subheader("📄 Documentos de Referencia")
+    ref_docs = load_reference_documents()
+    if ref_docs:
+        st.success(f"✅ {len(ref_docs)} documento(s) cargado(s)")
+        for fname in ref_docs:
+            st.caption(f"  • {fname}")
+    else:
+        st.caption("No configurados. Agrega PDFs al bucket 'reference-docs' en Supabase Storage.")
 
 # ── Add Example Plan form (shown in main area) ──
 if st.session_state.get("show_add_example", False):
