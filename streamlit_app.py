@@ -327,14 +327,24 @@ Consideraciones Especiales: {safe_considerations}
 {examples_text}
 {"IMPORTANTE: Usa los ejemplos de referencia como guía para el estilo, formato y estructura del plan. Adapta el contenido específicamente para este paciente, pero mantén un estilo similar." if relevant_examples else ""}
 
-Por favor crea un plan detallado de 7 días que incluya:
-1. Objetivos calóricos diarios
-2. Distribución de macronutrientes
-3. Sugerencias específicas de comidas (desayuno, comida, cena, colaciones)
-4. Alimentos a evitar basados en las condiciones de salud
-5. Recomendaciones de hidratación
-6. Sugerencias de suplementos si es necesario
-7. Consejos para el éxito
+Por favor crea un plan detallado que incluya:
+1. Desayuno con opciones variadas y multiples ejemplos
+2. Colacion con opciones variadas y multiples ejemplos
+3. Comida con opciones variadas y multiples ejemplos
+4. Cena con opciones variadas y multiples ejemplos
+5. Siempre incluye lo siguiente:
+"SAL: Modere el consumo de sal, alimentos salados o envasados. Puede utilizar 
+hierbas, especias, ajo, cebolla ó limón para sazonar." 
+6. Una secciòn llamada "ELIMINE   DE   SU  DIETA  LOS   SIGUIENTES   ALIMENTOS: " con recomendacion de alimentos a no incluir, por ejemplo:
+ - - - - - - 
+Azúcar 
+Frijoles, lentejas, habas, garbanzos, soya,  
+Jugos naturales 
+Yogurt saborizados 
+Pancita, hígado, mollejas, y cualquier tipo de vísceras. Chicharrón, 
+tocino, chorizo, salchicha. 
+Refrescos y jugos industrializados 
+Pastelillos
 
 Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en México."""
 
