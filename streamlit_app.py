@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, DateTime, Text, ForeignKey, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
 from datetime import datetime, timezone
+import pandas as pd
 from openai import OpenAI
 import anthropic
 
@@ -819,26 +820,16 @@ with col_btn2:
                             patient.bmi = calculate_bmi(weight, height)
                             patient.updated_at = _utcnow()
 
-                            # Update or create lab values
+                            # Always create a NEW lab record to preserve history
                             if any([glucose, cholesterol, triglycerides, hemoglobin]):
-                                lab = (
-                                    session.query(LabValue)
-                                    .filter_by(patient_id=patient.id)
-                                    .order_by(LabValue.created_at.desc())
-                                    .first()
-                                )
-                                lab_data = dict(
+                                session.add(LabValue(
+                                    patient_id=patient.id,
+                                    test_date=datetime.now().strftime("%Y-%m-%d"),
                                     glucose=_positive_or_none(glucose),
                                     cholesterol=_positive_or_none(cholesterol),
                                     triglycerides=_positive_or_none(triglycerides),
                                     hemoglobin=_positive_or_none(hemoglobin),
-                                    test_date=datetime.now().strftime("%Y-%m-%d"),
-                                )
-                                if lab:
-                                    for k, v in lab_data.items():
-                                        setattr(lab, k, v)
-                                else:
-                                    session.add(LabValue(patient_id=patient.id, **lab_data))
+                                ))
 
                             # Sync session state
                             st.session_state.patient_name = name
@@ -855,6 +846,80 @@ with col_btn2:
                             st.success(f"✅ ¡Datos actualizados! (ID: {patient.id})")
                 except Exception as e:
                     st.error(f"Error al actualizar paciente: {e}")
+
+st.markdown("---")
+
+# ══════════════════════════════════════════════
+# Section: Lab value history
+# ══════════════════════════════════════════════
+if st.session_state.patient_created and st.session_state.current_patient_id:
+    st.header("🔬 Historial de Laboratorio")
+
+    with get_db() as session:
+        all_labs = (
+            session.query(LabValue)
+            .filter_by(patient_id=st.session_state.current_patient_id)
+            .order_by(LabValue.test_date.asc())
+            .all()
+        )
+        session.expunge_all()
+
+    if len(all_labs) >= 1:
+        # Build dataframe from lab records
+        lab_records = []
+        for lab in all_labs:
+            lab_records.append({
+                "Fecha": lab.test_date,
+                "Glucosa (mg/dL)": lab.glucose,
+                "Colesterol (mg/dL)": lab.cholesterol,
+                "Triglicéridos (mg/dL)": lab.triglycerides,
+                "Hemoglobina (g/dL)": lab.hemoglobin,
+            })
+
+        df = pd.DataFrame(lab_records)
+
+        # Show data table
+        with st.expander("📊 Ver tabla de resultados", expanded=False):
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # Show trend charts if there are at least 2 records
+        if len(all_labs) >= 2:
+            st.subheader("📈 Tendencias")
+
+            lab_metrics = {
+                "Glucosa (mg/dL)": {"normal": (70, 100), "color": "#FF6B6B"},
+                "Colesterol (mg/dL)": {"normal": (0, 200), "color": "#4ECDC4"},
+                "Triglicéridos (mg/dL)": {"normal": (0, 150), "color": "#45B7D1"},
+                "Hemoglobina (g/dL)": {"normal": (12, 17), "color": "#96CEB4"},
+            }
+
+            chart_col1, chart_col2 = st.columns(2)
+
+            for idx, (metric, info) in enumerate(lab_metrics.items()):
+                col = chart_col1 if idx % 2 == 0 else chart_col2
+                with col:
+                    metric_df = df[["Fecha", metric]].dropna(subset=[metric])
+                    if len(metric_df) >= 2:
+                        st.markdown(f"**{metric}**")
+                        st.line_chart(metric_df.set_index("Fecha"), color=info["color"])
+
+                        # Show latest vs previous comparison
+                        latest = metric_df[metric].iloc[-1]
+                        previous = metric_df[metric].iloc[-2]
+                        delta = latest - previous
+                        lo, hi = info["normal"]
+                        status = "✅ Normal" if lo <= latest <= hi else "⚠️ Fuera de rango"
+                        st.metric(
+                            label=f"Último valor ({status})",
+                            value=f"{latest:.1f}",
+                            delta=f"{delta:+.1f} vs anterior",
+                            delta_color="inverse" if metric != "Hemoglobina (g/dL)" else "normal",
+                        )
+                        st.caption(f"Rango normal: {lo}–{hi}")
+        else:
+            st.info("Se necesitan al menos 2 registros de laboratorio para mostrar tendencias. Los valores se irán acumulando en cada visita.")
+    else:
+        st.info("No hay registros de laboratorio para este paciente aún.")
 
 st.markdown("---")
 
