@@ -357,12 +357,12 @@ def _build_diet_prompt(patient, lab_values, special_considerations, relevant_exa
     """Build the diet plan prompt — single source of truth."""
     examples_text = ""
     if relevant_examples:
-        examples_text = "\n\nEJEMPLOS DE REFERENCIA (usa estos como guía de estilo y formato):\n\n"
+        examples_text = "\n\nEJEMPLOS DE FORMATO (SOLO para referencia de estructura y formato, NO copies el contenido):\n\n"
         for idx, ex in enumerate(relevant_examples, 1):
             examples_text += (
-                f"--- EJEMPLO {idx} ---\n"
-                f"Perfil del paciente: {_sanitise_for_prompt(ex.patient_profile or '')}\n"
-                f"Plan:\n{ex.plan_content}\n\n"
+                f"--- EJEMPLO DE FORMATO {idx} ---\n"
+                f"Perfil del paciente del ejemplo: {_sanitise_for_prompt(ex.patient_profile or '')}\n"
+                f"Formato de referencia:\n{ex.plan_content}\n\n"
             )
 
     # Load reference documents from Supabase Storage
@@ -399,7 +399,7 @@ Consideraciones Especiales: {safe_considerations}
 {reference_text}
 {"IMPORTANTE: Basa las porciones y raciones en los documentos de referencia nutricional proporcionados." if ref_docs else ""}
 {examples_text}
-{"IMPORTANTE: Usa los ejemplos de referencia como guía para el estilo, formato y estructura del plan. Adapta el contenido específicamente para este paciente, pero mantén un estilo similar." if relevant_examples else ""}
+{"INSTRUCCIÓN CRÍTICA SOBRE LOS EJEMPLOS: Los ejemplos de formato son ÚNICAMENTE para que observes la estructura visual, el tipo de encabezados y la organización general. NO copies, parafrasees ni reutilices los alimentos, cantidades, menús ni texto de los ejemplos. El plan que generes debe ser 100%% original y personalizado para ESTE paciente basándote en sus datos clínicos, condiciones de salud y valores de laboratorio. Si el ejemplo dice 'pollo a la plancha', NO pongas en automatico 'pollo a la plancha' — elige alimentos apropiados para este paciente." if relevant_examples else ""}
 
 Por favor crea un plan detallado que incluya:
 1. Desayuno con opciones variadas y multiples ejemplos
