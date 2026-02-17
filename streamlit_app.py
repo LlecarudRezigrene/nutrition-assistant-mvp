@@ -429,7 +429,11 @@ def validate_api_key(api_key: str, provider: str) -> bool:
     try:
         if provider == "OpenAI":
             client = OpenAI(api_key=api_key)
-            client.models.list()
+            client.chat.completions.create(
+                model="gpt-5.2",
+                messages=[{"role": "user", "content": "hi"}],
+                max_completion_tokens=10,
+            )
         else:
             client = anthropic.Anthropic(api_key=api_key)
             client.messages.create(
@@ -450,10 +454,9 @@ def generate_diet_plan(patient, lab_values, special_considerations, api_key, pro
     if provider == "OpenAI":
         client = OpenAI(api_key=api_key)
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5.2",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=2500,
+            max_completion_tokens=4000,
         )
         return response.choices[0].message.content
     else:
