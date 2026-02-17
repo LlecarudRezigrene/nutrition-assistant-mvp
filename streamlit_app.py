@@ -424,6 +424,24 @@ Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en M�
 # ──────────────────────────────────────────────
 # AI generation
 # ──────────────────────────────────────────────
+def validate_api_key(api_key: str, provider: str) -> bool:
+    """Make a minimal API call to verify the key is valid."""
+    try:
+        if provider == "OpenAI":
+            client = OpenAI(api_key=api_key)
+            client.models.list()
+        else:
+            client = anthropic.Anthropic(api_key=api_key)
+            client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        return True
+    except Exception:
+        return False
+
+
 def generate_diet_plan(patient, lab_values, special_considerations, api_key, provider):
     """Unified generation function for both providers."""
     relevant_examples = find_relevant_examples(patient, lab_values, special_considerations)
@@ -600,29 +618,40 @@ with st.sidebar:
 
     ai_provider = st.selectbox("Selecciona el Proveedor de IA", ["OpenAI", "Anthropic"])
 
-    api_key = st.text_input(
-        f"Ingresa tu API Key de {ai_provider}",
+    # Try to load API key from secrets first, allow sidebar override
+    secret_key_name = "OPENAI_API_KEY" if ai_provider == "OpenAI" else "ANTHROPIC_API_KEY"
+    default_key = st.secrets.get(secret_key_name, "")
+
+    api_key_input = st.text_input(
+        f"API Key de {ai_provider}" + (" (cargada de secrets)" if default_key else ""),
         type="password",
-        help=f"Obtén tu API key en {ai_provider.lower()}.com",
+        value="" if default_key else "",
+        placeholder="Dejar vacío si ya está en secrets" if default_key else f"Ingresa tu API key de {ai_provider}",
+        help=f"Puedes configurar {secret_key_name} en tus secrets para no ingresarla cada vez.",
     )
 
-    st.markdown("---")
-    st.caption("Tu API key solo se usa para esta sesión y nunca se almacena.")
+    # Use sidebar input if provided, otherwise fall back to secrets
+    api_key = api_key_input.strip() if api_key_input.strip() else default_key
+
+    # Validate API key on change
+    if api_key:
+        cache_key = f"api_valid_{ai_provider}_{hash(api_key)}"
+        if cache_key not in st.session_state:
+            with st.spinner("Validando API key..."):
+                st.session_state[cache_key] = validate_api_key(api_key, ai_provider)
+
+        if st.session_state[cache_key]:
+            st.success(f"✅ API key de {ai_provider} válida")
+        else:
+            st.error(f"❌ API key de {ai_provider} inválida")
+            api_key = ""  # Clear so generation is blocked
+    else:
+        st.warning("⚠️ Sin API key — configúrala en secrets o ingrésala arriba para generar planes.")
 
     st.markdown("---")
     if st.button("🚪 Cerrar Sesión"):
         st.session_state.clear()
         st.rerun()
-
-# Gate: require API key
-if not api_key:
-    st.warning(f"👈 Por favor ingresa tu API key de {ai_provider} en la barra lateral para comenzar.")
-    st.info(
-        "**Cómo obtener una API key:**\n"
-        "- **OpenAI**: Visita [platform.openai.com](https://platform.openai.com) → API Keys\n"
-        "- **Anthropic**: Visita [console.anthropic.com](https://console.anthropic.com) → API Keys"
-    )
-    st.stop()
 
 # ── Sidebar: Example Plans management ──
 with st.sidebar:
@@ -1030,6 +1059,8 @@ special_considerations = st.text_area(
 if st.button("🤖 Generar Plan de Alimentación", type="primary", disabled=not st.session_state.patient_created):
     if not st.session_state.patient_created:
         st.error("Por favor crea un paciente primero")
+    elif not api_key:
+        st.error(f"⚠️ Se requiere una API key válida de {ai_provider} para generar planes. Configúrala en secrets o ingrésala en la barra lateral.")
     else:
         try:
             with st.spinner(f"Generando plan de alimentación personalizado usando {ai_provider}..."):
@@ -1122,33 +1153,36 @@ if st.session_state.plan_generated and st.session_state.current_plan:
     )
 
     if st.button("🔄 Regenerar Plan", type="secondary", disabled=not modifications):
-        try:
-            with st.spinner(f"Regenerando plan con modificaciones usando {ai_provider}..."):
-                with get_db() as session:
-                    patient = session.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
-                    lab_values = (
-                        session.query(LabValue)
-                        .filter_by(patient_id=patient.id)
-                        .order_by(LabValue.created_at.desc())
-                        .first()
-                    )
+        if not api_key:
+            st.error(f"⚠️ Se requiere una API key válida de {ai_provider} para regenerar planes.")
+        else:
+            try:
+                with st.spinner(f"Regenerando plan con modificaciones usando {ai_provider}..."):
+                    with get_db() as session:
+                        patient = session.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
+                        lab_values = (
+                            session.query(LabValue)
+                            .filter_by(patient_id=patient.id)
+                            .order_by(LabValue.created_at.desc())
+                            .first()
+                        )
 
-                    modified_considerations = f"{special_considerations}\n\nModificaciones solicitadas: {modifications}"
-                    new_plan_text = generate_diet_plan(patient, lab_values, modified_considerations, api_key, ai_provider)
+                        modified_considerations = f"{special_considerations}\n\nModificaciones solicitadas: {modifications}"
+                        new_plan_text = generate_diet_plan(patient, lab_values, modified_considerations, api_key, ai_provider)
 
-                    existing_plan = session.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
-                    if existing_plan:
-                        existing_plan.plan_details = new_plan_text
-                        existing_plan.special_considerations = modified_considerations
-                        existing_plan.updated_at = _utcnow()
-                        st.session_state.current_plan = new_plan_text
-                        st.success("✅ ¡Plan regenerado exitosamente!")
-                    else:
-                        st.error("No se encontró el plan para actualizar")
+                        existing_plan = session.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
+                        if existing_plan:
+                            existing_plan.plan_details = new_plan_text
+                            existing_plan.special_considerations = modified_considerations
+                            existing_plan.updated_at = _utcnow()
+                            st.session_state.current_plan = new_plan_text
+                            st.success("✅ ¡Plan regenerado exitosamente!")
+                        else:
+                            st.error("No se encontró el plan para actualizar")
 
-                st.rerun()
-        except Exception as e:
-            st.error(f"Error al regenerar plan: {e}")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Error al regenerar plan: {e}")
 
 # ── Footer ──
 st.markdown("---")
