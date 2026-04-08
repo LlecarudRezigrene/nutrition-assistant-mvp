@@ -13,7 +13,7 @@ from supabase import create_client as create_supabase_client
 
 # ──────────────────────────────────────────────
 # Page config (must be first Streamlit call)
-# ──────────────────────────────────────────────-
+# ──────────────────────────────────────────────--
 st.set_page_config(page_title="Asistente de Nutrición con IA", page_icon="🥗", layout="wide")
 
 # ──────────────────────────────────────────────
