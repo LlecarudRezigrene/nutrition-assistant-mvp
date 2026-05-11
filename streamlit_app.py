@@ -511,6 +511,8 @@ with st.sidebar:
         else:
             st.warning("⚠️ Formato de API key inusual. Se intentará usar de todos modos al generar.")
     else:
+        st.info("ℹ️ Configura una API key para habilitar la generación con IA.")
+
     patient_tab, labs_tab, generate_tab, plans_tab, examples_tab = st.tabs([
         "👤 Paciente",
         "🔬 Laboratorio",
