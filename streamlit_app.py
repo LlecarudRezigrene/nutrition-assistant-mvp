@@ -824,26 +824,3 @@ with st.sidebar:
     # ── Footer ──
     st.markdown("---")
     st.caption("💡 Usa la pestaña de Paciente para cambiar de paciente y las demás pestañas para navegar sin hacer scroll largo.")
-        if not api_key:
-            st.error(f"⚠️ Se requiere API key de {ai_provider}.")
-        else:
-            try:
-                with st.spinner(f"Regenerando ({ai_provider})..."):
-                    with get_db() as s:
-                        patient, labs = _load_patient_and_labs(s, st.session_state.current_patient_id)
-                        mod = f"{special_considerations}\n\nModificaciones: {modifications}"
-                        new_text = generate_diet_plan(patient, labs, mod, api_key, ai_provider)
-                        existing = s.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
-                        if existing:
-                            existing.plan_details, existing.special_considerations, existing.updated_at = new_text, mod, _utcnow()
-                            st.session_state.current_plan = new_text
-                            st.success("✅ Regenerado!")
-                        else:
-                            st.error("Plan no encontrado")
-                    st.rerun()
-            except Exception as e:
-                _show_error("al regenerar plan", e)
-
-# ── Footer ──
-st.markdown("---")
-st.caption("💡 Usa el selector en la parte superior para cambiar de paciente.")
