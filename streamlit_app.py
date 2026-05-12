@@ -553,17 +553,161 @@ def render_patient_summary(patient, latest_labs):
 
 
 # ──────────────────────────────────────────────
+# DOCX generation
+# ──────────────────────────────────────────────
+def build_plan_docx(plan_text: str, patient, plan=None) -> bytes:
+    """Generate a clean, formatted .docx of a diet plan.
+
+    Parses a subset of markdown from the LLM output:
+      - # / ## / ### → Heading 1/2/3
+      - * or - prefix → bullet list
+      - **bold** → bold runs
+      - blank lines → paragraph breaks
+    """
+    from docx import Document
+    from docx.shared import Pt, Cm, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    import re
+
+    doc = Document()
+
+    # Margins
+    for section in doc.sections:
+        section.top_margin = Cm(2)
+        section.bottom_margin = Cm(2)
+        section.left_margin = Cm(2.2)
+        section.right_margin = Cm(2.2)
+
+    # Default font
+    style = doc.styles["Normal"]
+    style.font.name = "Calibri"
+    style.font.size = Pt(11)
+
+    # Title
+    title = doc.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = title.add_run("Plan Nutricional Personalizado")
+    run.bold = True
+    run.font.size = Pt(18)
+    run.font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+
+    # Patient info block
+    info = doc.add_paragraph()
+    info.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    info_lines = [
+        f"Paciente: {patient.name}",
+        f"Edad: {patient.age} años  ·  Género: {GENDER_FROM_DB.get(patient.gender, patient.gender)}",
+        f"Peso: {patient.weight:g} kg  ·  Altura: {patient.height:g} cm  ·  IMC: {patient.bmi:.1f}" if patient.bmi else "",
+    ]
+    if patient.health_conditions:
+        info_lines.append(f"Condiciones: {', '.join(patient.health_conditions)}")
+    info_lines.append(f"Fecha: {datetime.now().strftime('%d/%m/%Y')}")
+    info.add_run("\n".join(line for line in info_lines if line)).font.size = Pt(10)
+
+    # Separator
+    sep = doc.add_paragraph()
+    sep_run = sep.add_run("─" * 60)
+    sep_run.font.color.rgb = RGBColor(0xCC, 0xCC, 0xCC)
+    sep.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # ── Body: parse plan_text as light markdown ────────────────────
+    bold_re = re.compile(r"\*\*(.+?)\*\*")
+
+    def add_runs_with_bold(paragraph, text):
+        """Add text to paragraph, converting **bold** segments."""
+        pos = 0
+        for m in bold_re.finditer(text):
+            if m.start() > pos:
+                paragraph.add_run(text[pos:m.start()])
+            r = paragraph.add_run(m.group(1))
+            r.bold = True
+            pos = m.end()
+        if pos < len(text):
+            paragraph.add_run(text[pos:])
+
+    for raw_line in plan_text.split("\n"):
+        line = raw_line.rstrip()
+        if not line.strip():
+            # Preserve paragraph breaks
+            doc.add_paragraph()
+            continue
+
+        # Headings
+        if line.startswith("### "):
+            p = doc.add_paragraph()
+            r = p.add_run(line[4:].strip())
+            r.bold = True
+            r.font.size = Pt(12)
+            r.font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+        elif line.startswith("## "):
+            p = doc.add_paragraph()
+            r = p.add_run(line[3:].strip())
+            r.bold = True
+            r.font.size = Pt(13)
+            r.font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+        elif line.startswith("# "):
+            p = doc.add_paragraph()
+            r = p.add_run(line[2:].strip())
+            r.bold = True
+            r.font.size = Pt(14)
+            r.font.color.rgb = RGBColor(0x2E, 0x75, 0xB6)
+        elif line.lstrip().startswith(("- ", "* ", "• ")):
+            # Bullet
+            content = line.lstrip()[2:].lstrip()
+            p = doc.add_paragraph(style="List Bullet")
+            add_runs_with_bold(p, content)
+        else:
+            p = doc.add_paragraph()
+            add_runs_with_bold(p, line)
+
+    # Footer
+    doc.add_paragraph()
+    footer = doc.add_paragraph()
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    fr = footer.add_run(f"Generado el {datetime.now().strftime('%d/%m/%Y a las %H:%M')}")
+    fr.italic = True
+    fr.font.size = Pt(9)
+    fr.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def docx_filename(patient_name: str, plan_id=None) -> str:
+    """Build a safe .docx filename."""
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in patient_name).strip().replace(" ", "_")
+    suffix = f"_plan{plan_id}" if plan_id else f"_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    return f"{safe_name}{suffix}.docx"
+
+
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+# ──────────────────────────────────────────────
 # UI: plan card
 # ──────────────────────────────────────────────
-def render_plan_card(plan, prefix="plan"):
+def render_plan_card(plan, patient, prefix="plan"):
     st.markdown(f"**ID:** {plan.id}  |  **Estado:** {plan.status}  |  **Creado:** {plan.created_at.strftime('%d/%m/%Y %H:%M')}  |  **Actualizado:** {plan.updated_at.strftime('%d/%m/%Y %H:%M')}")
     if plan.special_considerations:
         st.markdown(f"**Consideraciones:** {plan.special_considerations}")
-    st.text_area("Plan", value=plan.plan_details, height=300, disabled=True, key=f"{prefix}_c_{plan.id}")
+    with st.container(border=True, height=350):
+        st.markdown(plan.plan_details)
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.download_button("📥 Descargar", data=plan.plan_details, file_name=f"plan_{plan.id}.txt", mime="text/plain", key=f"{prefix}_dl_{plan.id}")
+        # Generate docx on render (cheap, ~30-40KB)
+        try:
+            docx_bytes = build_plan_docx(plan.plan_details, patient, plan)
+            st.download_button(
+                "📥 Descargar Word",
+                data=docx_bytes,
+                file_name=docx_filename(patient.name, plan.id),
+                mime=DOCX_MIME,
+                key=f"{prefix}_dl_{plan.id}",
+            )
+        except Exception as e:
+            _show_error("al generar Word", e)
     with c2:
         if st.button("🔄 Editar", key=f"{prefix}_ld_{plan.id}"):
             st.session_state.update(current_plan=plan.plan_details, current_plan_id=plan.id, plan_generated=True)
@@ -909,12 +1053,50 @@ with tab_historial:
         st.header("📚 Planes Anteriores")
         with get_db() as s:
             past_plans = s.query(DietPlan).filter_by(patient_id=st.session_state.current_patient_id).order_by(DietPlan.created_at.desc()).all()
+            _hist_patient, _ = _load_patient_and_labs(s, st.session_state.current_patient_id)
             s.expunge_all()
-        if past_plans:
-            st.info(f"{len(past_plans)} plan(es)")
-            for idx, plan in enumerate(past_plans):
-                with st.expander(f"📋 Plan #{idx + 1} - {plan.created_at.strftime('%d/%m/%Y %H:%M')}", expanded=(len(past_plans) == 1)):
-                    render_plan_card(plan, prefix=f"p{idx}")
+        if past_plans and _hist_patient:
+            # Search/filter when there are enough plans to make scanning hard
+            search_query = ""
+            if len(past_plans) > 5:
+                search_query = st.text_input(
+                    "🔎 Buscar en planes anteriores",
+                    placeholder="Buscar por consideraciones o contenido...",
+                    key="plan_history_search",
+                ).strip().lower()
+
+            filtered_plans = past_plans
+            if search_query:
+                filtered_plans = [
+                    p for p in past_plans
+                    if search_query in (p.special_considerations or "").lower()
+                    or search_query in (p.plan_details or "").lower()
+                ]
+                st.caption(f"Mostrando {len(filtered_plans)} de {len(past_plans)} plan(es)")
+            else:
+                st.info(f"{len(past_plans)} plan(es)")
+
+            if not filtered_plans:
+                st.warning("Ningún plan coincide con la búsqueda.")
+
+            for idx, plan in enumerate(filtered_plans):
+                # Build a richer expander title: date + consideraciones + content preview
+                _date_str = plan.created_at.strftime("%d/%m/%Y %H:%M")
+                _cons = (plan.special_considerations or "").strip()
+                _cons_short = (_cons[:60] + "…") if len(_cons) > 60 else _cons
+                # Strip markdown for cleaner preview
+                _preview = " ".join(plan.plan_details.replace("#", "").replace("*", "").split())[:90]
+                _preview_short = _preview + "…" if len(_preview) >= 90 else _preview
+
+                _title_parts = [f"📋 Plan #{idx + 1}", _date_str]
+                if _cons_short:
+                    _title_parts.append(f'"{_cons_short}"')
+                _title = " · ".join(_title_parts)
+
+                with st.expander(_title, expanded=(len(filtered_plans) == 1)):
+                    if _preview_short:
+                        st.caption(_preview_short)
+                    render_plan_card(plan, _hist_patient, prefix=f"p{idx}")
         else:
             st.info("Sin planes guardados.")
 
@@ -926,33 +1108,69 @@ with tab_generar:
     # ══════════════════════════════════════════════
     if st.session_state.plan_generated and st.session_state.current_plan:
         st.header("3️⃣ Plan Generado")
-        st.text_area("Plan", value=st.session_state.current_plan, height=400, disabled=True)
-        st.download_button("📥 Descargar", data=st.session_state.current_plan, file_name=f"plan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", mime="text/plain")
+        with st.container(border=True, height=500):
+            st.markdown(st.session_state.current_plan)
+        # Build .docx for download
+        try:
+            with get_db() as s:
+                _cur_patient, _ = _load_patient_and_labs(s, st.session_state.current_patient_id)
+                s.expunge_all()
+            if _cur_patient:
+                docx_bytes = build_plan_docx(
+                    st.session_state.current_plan, _cur_patient, plan=None
+                )
+                st.download_button(
+                    "📥 Descargar Word",
+                    data=docx_bytes,
+                    file_name=docx_filename(_cur_patient.name, st.session_state.current_plan_id),
+                    mime=DOCX_MIME,
+                    key="current_plan_dl",
+                )
+        except Exception as e:
+            _show_error("al generar Word", e)
 
         st.markdown("---")
         st.subheader("Modificar y Regenerar")
+        st.caption("⚠️ Regenerar **sobrescribe** el plan actual. Si quieres conservar este plan, descárgalo primero.")
         modifications = st.text_area("Modificaciones", placeholder="ej: Más proteína, menos carbohidratos", height=100)
 
-        if st.button("🔄 Regenerar Plan", type="secondary", disabled=not modifications):
-            if not api_key:
-                st.error(f"⚠️ Se requiere API key de {ai_provider}.")
-            else:
-                try:
-                    with st.spinner(f"Regenerando con {ai_provider}... Esto puede tomar 30-60 segundos."):
-                        with get_db() as s:
-                            patient, labs = _load_patient_and_labs(s, st.session_state.current_patient_id)
-                            mod = f"{special_considerations}\n\nModificaciones: {modifications}"
-                            new_text = generate_diet_plan(patient, labs, mod, api_key, ai_provider)
-                            existing = s.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
-                            if existing:
-                                existing.plan_details, existing.special_considerations, existing.updated_at = new_text, mod, _utcnow()
-                                st.session_state.current_plan = new_text
-                                st.success("✅ Regenerado!")
-                            else:
-                                st.error("Plan no encontrado")
-                        st.rerun()
-                except Exception as e:
-                    _show_error("al regenerar plan", e)
+        # Two-step confirm pattern: first click sets pending flag, second click confirms.
+        _pending_key = "regenerate_pending"
+        _pending = st.session_state.get(_pending_key, False)
+
+        if not _pending:
+            if st.button("🔄 Regenerar Plan", type="secondary", disabled=not modifications):
+                if not api_key:
+                    st.error(f"⚠️ Se requiere API key de {ai_provider}.")
+                else:
+                    st.session_state[_pending_key] = True
+                    st.rerun()
+        else:
+            st.warning("¿Sobrescribir el plan actual con uno regenerado? Esta acción no se puede deshacer.")
+            cc_confirm, cc_cancel = st.columns(2)
+            with cc_confirm:
+                if st.button("✅ Sí, regenerar", type="primary", key="regen_confirm"):
+                    st.session_state[_pending_key] = False
+                    try:
+                        with st.spinner(f"Regenerando con {ai_provider}... Esto puede tomar 30-60 segundos."):
+                            with get_db() as s:
+                                patient, labs = _load_patient_and_labs(s, st.session_state.current_patient_id)
+                                mod = f"{special_considerations}\n\nModificaciones: {modifications}"
+                                new_text = generate_diet_plan(patient, labs, mod, api_key, ai_provider)
+                                existing = s.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
+                                if existing:
+                                    existing.plan_details, existing.special_considerations, existing.updated_at = new_text, mod, _utcnow()
+                                    st.session_state.current_plan = new_text
+                                    st.success("✅ Regenerado!")
+                                else:
+                                    st.error("Plan no encontrado")
+                            st.rerun()
+                    except Exception as e:
+                        _show_error("al regenerar plan", e)
+            with cc_cancel:
+                if st.button("❌ Cancelar", key="regen_cancel"):
+                    st.session_state[_pending_key] = False
+                    st.rerun()
 
     # ── Footer ──
     st.markdown("---")
