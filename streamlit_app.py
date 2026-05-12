@@ -63,11 +63,46 @@ AGE_KEYWORDS = [(18, ["adolescente", "joven"]), (30, ["adulto joven"]), (60, ["a
 BMI_KEYWORDS = [(18.5, "bajo peso"), (25, "peso normal"), (30, "sobrepeso"), (999, "obesidad")]
 
 LAB_METRICS = {
-    "Glucosa (mg/dL)": {"normal": (70, 100), "color": "#FF6B6B"},
-    "Colesterol (mg/dL)": {"normal": (0, 200), "color": "#4ECDC4"},
-    "Triglicéridos (mg/dL)": {"normal": (0, 150), "color": "#45B7D1"},
-    "Hemoglobina (g/dL)": {"normal": (12, 17), "color": "#96CEB4"},
+    # normal = (low_normal, high_normal); critical = (critical_low, critical_high).
+    # Values outside `critical` warrant urgent clinical attention.
+    # Generic clinical defaults — adjust per nutritionist guidance if needed.
+    "Glucosa (mg/dL)":       {"normal": (70, 100),  "critical": (50, 250),  "color": "#FF6B6B"},
+    "Colesterol (mg/dL)":    {"normal": (0, 200),   "critical": (0, 300),   "color": "#4ECDC4"},
+    "Triglicéridos (mg/dL)": {"normal": (0, 150),   "critical": (0, 500),   "color": "#45B7D1"},
+    "Hemoglobina (g/dL)":    {"normal": (12, 17),   "critical": (8, 20),    "color": "#96CEB4"},
 }
+
+
+def lab_status(metric: str, value) -> str:
+    """Return one of: 'critical', 'warning', 'normal', 'unknown'."""
+    if value is None or value <= 0:
+        return "unknown"
+    info = LAB_METRICS.get(metric)
+    if not info:
+        return "unknown"
+    crit_lo, crit_hi = info["critical"]
+    norm_lo, norm_hi = info["normal"]
+    if value < crit_lo or value > crit_hi:
+        return "critical"
+    if value < norm_lo or value > norm_hi:
+        return "warning"
+    return "normal"
+
+
+LAB_STATUS_ICON = {"critical": "🚨", "warning": "⚠️", "normal": "✅", "unknown": "—"}
+
+
+def bmi_category(bmi) -> tuple[str, str]:
+    """Return (label, color_hex) for a BMI value."""
+    if not bmi:
+        return ("—", "#999999")
+    if bmi < 18.5:
+        return ("Bajo peso", "#4A90E2")
+    if bmi < 25:
+        return ("Peso normal", "#7CB342")
+    if bmi < 30:
+        return ("Sobrepeso", "#F5A623")
+    return ("Obesidad", "#D0021B")
 
 REFERENCE_BUCKET = "reference-docs"
 
@@ -326,8 +361,7 @@ def _build_diet_prompt(patient, lab_values, special_considerations, relevant_exa
     if ref_docs:
         reference_text = "\n\nDOCUMENTOS DE REFERENCIA NUTRICIONAL (usa estas tablas y guías para fundamentar las porciones y raciones):\n\n"
         for filename, content in ref_docs.items():
-            truncated = content[:3000] + ("..." if len(content) > 3000 else "")
-            reference_text += f"--- {filename} ---\n{truncated}\n\n"
+            reference_text += f"--- {filename} ---\n{content}\n\n"
 
     conditions = ", ".join(_sanitise(c) for c in patient.health_conditions) if patient.health_conditions else "Ninguna"
     safe_considerations = _sanitise(special_considerations) if special_considerations else "Ninguna"
@@ -382,24 +416,47 @@ INSTRUCCIÓN DE FORMATO: Este plan se entregará como documento al paciente. NO 
 # ──────────────────────────────────────────────
 # AI generation & validation
 # ──────────────────────────────────────────────
-def validate_api_key(api_key: str, provider: str) -> bool:
+# Model configuration — update here when bumping versions
+OPENAI_MODEL = "gpt-5.4"
+ANTHROPIC_MODEL = "claude-sonnet-4-6"
+MAX_TOKENS_GENERATION = 8000
+
+
+def validate_api_key(api_key: str, provider: str) -> tuple[bool, str]:
+    """Returns (is_valid, error_message). error_message is '' on success."""
     try:
         if provider == "OpenAI":
-            OpenAI(api_key=api_key).chat.completions.create(model="gpt-5.2", messages=[{"role": "user", "content": "hi"}], max_completion_tokens=10)
+            OpenAI(api_key=api_key).chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": "hi"}],
+                max_completion_tokens=10,
+            )
         else:
-            anthropic.Anthropic(api_key=api_key).messages.create(model="claude-sonnet-4-5-20250929", max_tokens=10, messages=[{"role": "user", "content": "hi"}])
-        return True
-    except Exception:
-        return False
+            anthropic.Anthropic(api_key=api_key).messages.create(
+                model=ANTHROPIC_MODEL,
+                max_tokens=10,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        return True, ""
+    except Exception as e:
+        return False, str(e)[:300]
 
 
 def generate_diet_plan(patient, lab_values, special_considerations, api_key, provider):
     prompt = _build_diet_prompt(patient, lab_values, special_considerations, find_relevant_examples(patient, lab_values, special_considerations))
     if provider == "OpenAI":
-        resp = OpenAI(api_key=api_key).chat.completions.create(model="gpt-5.2", messages=[{"role": "user", "content": prompt}], max_completion_tokens=4000)
+        resp = OpenAI(api_key=api_key).chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=MAX_TOKENS_GENERATION,
+        )
         return resp.choices[0].message.content
     else:
-        msg = anthropic.Anthropic(api_key=api_key).messages.create(model="claude-sonnet-4-5-20250929", max_tokens=2500, messages=[{"role": "user", "content": prompt}])
+        msg = anthropic.Anthropic(api_key=api_key).messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=MAX_TOKENS_GENERATION,
+            messages=[{"role": "user", "content": prompt}],
+        )
         return msg.content[0].text
 
 
@@ -429,6 +486,70 @@ def load_patient_into_state(patient, lab_values):
         patient_triglycerides=(lab_values.triglycerides or 0.0) if lab_values else 0.0,
         patient_hemoglobin=(lab_values.hemoglobin or 0.0) if lab_values else 0.0,
     )
+
+
+def render_patient_summary(patient, latest_labs):
+    """Compact patient overview shown above the workflow tabs."""
+    bmi_label, bmi_color = bmi_category(patient.bmi)
+
+    # Critical lab check — surface emergencies prominently
+    critical_alerts = []
+    if latest_labs:
+        for metric, field in [
+            ("Glucosa (mg/dL)", "glucose"),
+            ("Colesterol (mg/dL)", "cholesterol"),
+            ("Triglicéridos (mg/dL)", "triglycerides"),
+            ("Hemoglobina (g/dL)", "hemoglobin"),
+        ]:
+            val = getattr(latest_labs, field, None)
+            if lab_status(metric, val) == "critical":
+                short = metric.split(" (")[0]
+                critical_alerts.append(f"**{short}: {val}**")
+    if critical_alerts:
+        st.error("🚨 **VALORES CRÍTICOS** — revisar urgentemente: " + " · ".join(critical_alerts))
+
+    with st.container(border=True):
+        c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
+        with c1:
+            st.markdown(f"### 👤 {patient.name}")
+            st.caption(f"ID: {patient.id} · {patient.age} años · {GENDER_FROM_DB.get(patient.gender, patient.gender)}")
+        with c2:
+            st.metric("Peso", f"{patient.weight:g} kg")
+            st.metric("Altura", f"{patient.height:g} cm")
+        with c3:
+            st.metric("IMC", f"{patient.bmi:.1f}" if patient.bmi else "—")
+            st.markdown(
+                f"<span style='background:{bmi_color};color:white;padding:2px 8px;border-radius:8px;font-size:0.8em'>{bmi_label}</span>",
+                unsafe_allow_html=True,
+            )
+        with c4:
+            st.markdown("**Condiciones**")
+            if patient.health_conditions:
+                chips = "".join(
+                    f"<span style='background:#E8EAF6;color:#3F51B5;padding:3px 10px;border-radius:12px;font-size:0.85em;margin:2px;display:inline-block'>{c}</span>"
+                    for c in patient.health_conditions
+                )
+                st.markdown(chips, unsafe_allow_html=True)
+            else:
+                st.caption("Ninguna registrada")
+
+        if latest_labs:
+            st.markdown("**Últimos resultados de laboratorio**")
+            lc = st.columns(4)
+            for col, (metric, field) in zip(lc, [
+                ("Glucosa (mg/dL)", "glucose"),
+                ("Colesterol (mg/dL)", "cholesterol"),
+                ("Triglicéridos (mg/dL)", "triglycerides"),
+                ("Hemoglobina (g/dL)", "hemoglobin"),
+            ]):
+                val = getattr(latest_labs, field, None)
+                status = lab_status(metric, val)
+                icon = LAB_STATUS_ICON[status]
+                short = metric.split(" (")[0]
+                with col:
+                    st.metric(f"{icon} {short}", f"{val:g}" if val else "—")
+        else:
+            st.caption("Sin resultados de laboratorio registrados.")
 
 
 # ──────────────────────────────────────────────
@@ -484,10 +605,16 @@ with st.sidebar:
         if cache_key not in st.session_state:
             with st.spinner("Validando..."):
                 st.session_state[cache_key] = validate_api_key(api_key, ai_provider)
-        if st.session_state[cache_key]:
+        is_valid, err_msg = st.session_state[cache_key]
+        if is_valid:
             st.success(f"✅ API key válida")
+            model_label = OPENAI_MODEL if ai_provider == "OpenAI" else ANTHROPIC_MODEL
+            st.caption(f"🧠 Modelo: `{model_label}`")
         else:
             st.error(f"❌ API key inválida")
+            if err_msg:
+                with st.expander("Ver detalle del error"):
+                    st.code(err_msg)
             api_key = ""
     else:
         st.warning("⚠️ Sin API key")
@@ -603,198 +730,230 @@ if all_patients:
             st.rerun()
 
     if st.session_state.load_existing_patient and st.session_state.current_patient_id:
-        st.success(f"📋 Paciente: {_gs('patient_name')} (ID: {st.session_state.current_patient_id})")
+        with get_db() as _s:
+            _summary_patient, _summary_labs = _load_patient_and_labs(_s, st.session_state.current_patient_id)
+            _s.expunge_all()
+        if _summary_patient:
+            render_patient_summary(_summary_patient, _summary_labs)
     else:
-        st.info("📝 Crear nuevo paciente")
+        st.info("📝 Modo: crear nuevo paciente. Usa la pestaña **Datos del Paciente** para empezar.")
 else:
     st.info("No hay pacientes. Crea uno nuevo abajo.")
 
-st.markdown("---")
 
 # ══════════════════════════════════════════════
-# Patient information
+# Main workflow tabs
 # ══════════════════════════════════════════════
-st.header("1️⃣ Información del Paciente")
-c1, c2 = st.columns(2)
-with c1:
-    name = st.text_input("Nombre *", value=_gs("patient_name"))
-    age = st.number_input("Edad *", min_value=1, max_value=120, value=int(_gs("patient_age")))
-    gv = _gs("patient_gender")
-    gender = st.selectbox("Género *", GENDER_OPTIONS, index=GENDER_OPTIONS.index(gv) if gv in GENDER_OPTIONS else 0)
-with c2:
-    weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=float(_gs("patient_weight")), step=0.1)
-    height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=float(_gs("patient_height")), step=0.1)
-    if weight and height:
-        st.metric("IMC", calculate_bmi(weight, height))
+tab_datos, tab_labs, tab_generar, tab_historial = st.tabs([
+    "📋 Datos del Paciente",
+    "🔬 Laboratorio",
+    "🤖 Generar Plan",
+    "📚 Historial de Planes",
+])
 
-health_conditions = st.text_input("Condiciones de Salud (comas)", value=_gs("patient_health_conditions"), placeholder="ej: diabetes, hipertensión")
+with tab_datos:
+    # ══════════════════════════════════════════════
+    # Patient information
+    # ══════════════════════════════════════════════
+    st.header("1️⃣ Información del Paciente")
+    c1, c2 = st.columns(2)
+    with c1:
+        name = st.text_input("Nombre *", value=_gs("patient_name"))
+        age = st.number_input("Edad *", min_value=1, max_value=120, value=int(_gs("patient_age")))
+        gv = _gs("patient_gender")
+        gender = st.selectbox("Género *", GENDER_OPTIONS, index=GENDER_OPTIONS.index(gv) if gv in GENDER_OPTIONS else 0)
+    with c2:
+        weight = st.number_input("Peso (kg) *", min_value=1.0, max_value=500.0, value=float(_gs("patient_weight")), step=0.1)
+        height = st.number_input("Altura (cm) *", min_value=50.0, max_value=250.0, value=float(_gs("patient_height")), step=0.1)
+        if weight and height:
+            st.metric("IMC", calculate_bmi(weight, height))
 
-st.subheader("Resultados de Laboratorio")
-c3, c4 = st.columns(2)
-with c3:
-    glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=float(_gs("patient_glucose")), step=0.1)
-    cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=float(_gs("patient_cholesterol")), step=0.1)
-with c4:
-    triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=float(_gs("patient_triglycerides")), step=0.1)
-    hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=float(_gs("patient_hemoglobin")), step=0.1)
+    health_conditions = st.text_input("Condiciones de Salud (comas)", value=_gs("patient_health_conditions"), placeholder="ej: diabetes, hipertensión")
 
-has_labs = any([glucose, cholesterol, triglycerides, hemoglobin])
-lab_kw = dict(test_date=datetime.now().strftime("%Y-%m-%d"), glucose=_positive_or_none(glucose), cholesterol=_positive_or_none(cholesterol), triglycerides=_positive_or_none(triglycerides), hemoglobin=_positive_or_none(hemoglobin))
+    st.subheader("Resultados de Laboratorio")
+    c3, c4 = st.columns(2)
+    with c3:
+        glucose = st.number_input("Glucosa (mg/dL)", min_value=0.0, value=float(_gs("patient_glucose")), step=0.1)
+        cholesterol = st.number_input("Colesterol (mg/dL)", min_value=0.0, value=float(_gs("patient_cholesterol")), step=0.1)
+    with c4:
+        triglycerides = st.number_input("Triglicéridos (mg/dL)", min_value=0.0, value=float(_gs("patient_triglycerides")), step=0.1)
+        hemoglobin = st.number_input("Hemoglobina (g/dL)", min_value=0.0, value=float(_gs("patient_hemoglobin")), step=0.1)
 
-cb1, cb2 = st.columns(2)
-with cb1:
-    if not st.session_state.load_existing_patient:
-        if st.button("💾 Crear Paciente", type="primary", disabled=st.session_state.patient_created):
-            if not (name and age and weight and height):
-                st.error("Completa los campos requeridos (*)")
-            else:
-                try:
-                    with get_db() as s:
-                        p = Patient(name=name, age=int(age), gender=GENDER_TO_DB.get(gender, "other"), weight=float(weight), height=float(height), health_conditions=_parse_csv(health_conditions), bmi=calculate_bmi(weight, height))
-                        s.add(p)
-                        s.flush()
-                        if has_labs:
-                            s.add(LabValue(patient_id=p.id, **lab_kw))
-                        st.session_state.update(patient_created=True, current_patient_id=p.id)
-                    st.success(f"✅ Paciente creado (ID: {st.session_state.current_patient_id})")
-                except Exception as e:
-                    _show_error("al crear paciente", e)
+    has_labs = any([glucose, cholesterol, triglycerides, hemoglobin])
+    lab_kw = dict(test_date=datetime.now().strftime("%Y-%m-%d"), glucose=_positive_or_none(glucose), cholesterol=_positive_or_none(cholesterol), triglycerides=_positive_or_none(triglycerides), hemoglobin=_positive_or_none(hemoglobin))
 
-with cb2:
-    if st.session_state.load_existing_patient:
-        if st.button("🔄 Actualizar Paciente", type="primary"):
-            if not (name and age and weight and height):
-                st.error("Completa los campos requeridos (*)")
-            else:
-                try:
-                    with get_db() as s:
-                        p = s.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
-                        if not p:
-                            st.error("Paciente no encontrado")
-                        else:
-                            p.name, p.age, p.gender = name, int(age), GENDER_TO_DB.get(gender, "other")
-                            p.weight, p.height = float(weight), float(height)
-                            p.health_conditions, p.bmi, p.updated_at = _parse_csv(health_conditions), calculate_bmi(weight, height), _utcnow()
+    cb1, cb2 = st.columns(2)
+    with cb1:
+        if not st.session_state.load_existing_patient:
+            if st.button("💾 Crear Paciente", type="primary", disabled=st.session_state.patient_created):
+                if not (name and age and weight and height):
+                    st.error("Completa los campos requeridos (*)")
+                else:
+                    try:
+                        with get_db() as s:
+                            p = Patient(name=name, age=int(age), gender=GENDER_TO_DB.get(gender, "other"), weight=float(weight), height=float(height), health_conditions=_parse_csv(health_conditions), bmi=calculate_bmi(weight, height))
+                            s.add(p)
+                            s.flush()
                             if has_labs:
                                 s.add(LabValue(patient_id=p.id, **lab_kw))
-                            st.session_state.update(patient_name=name, patient_age=age, patient_gender=gender, patient_weight=weight, patient_height=height, patient_health_conditions=health_conditions, patient_glucose=glucose, patient_cholesterol=cholesterol, patient_triglycerides=triglycerides, patient_hemoglobin=hemoglobin)
-                            st.success(f"✅ Actualizado (ID: {p.id})")
-                except Exception as e:
-                    _show_error("al actualizar paciente", e)
+                            st.session_state.update(patient_created=True, current_patient_id=p.id)
+                        st.success(f"✅ Paciente creado (ID: {st.session_state.current_patient_id})")
+                    except Exception as e:
+                        _show_error("al crear paciente", e)
 
-st.markdown("---")
-
-# ══════════════════════════════════════════════
-# Lab history
-# ══════════════════════════════════════════════
-if st.session_state.patient_created and st.session_state.current_patient_id:
-    st.header("🔬 Historial de Laboratorio")
-    with get_db() as s:
-        all_labs = s.query(LabValue).filter_by(patient_id=st.session_state.current_patient_id).order_by(LabValue.test_date.asc()).all()
-        s.expunge_all()
-
-    if all_labs:
-        df = pd.DataFrame([{"Fecha": l.test_date, "Glucosa (mg/dL)": l.glucose, "Colesterol (mg/dL)": l.cholesterol, "Triglicéridos (mg/dL)": l.triglycerides, "Hemoglobina (g/dL)": l.hemoglobin} for l in all_labs])
-        with st.expander("📊 Tabla de resultados", expanded=False):
-            st.dataframe(df, use_container_width=True, hide_index=True)
-
-        if len(all_labs) >= 2:
-            st.subheader("📈 Tendencias")
-            cc1, cc2 = st.columns(2)
-            for idx, (metric, info) in enumerate(LAB_METRICS.items()):
-                with (cc1 if idx % 2 == 0 else cc2):
-                    mdf = df[["Fecha", metric]].dropna(subset=[metric])
-                    if len(mdf) >= 2:
-                        st.markdown(f"**{metric}**")
-                        st.line_chart(mdf.set_index("Fecha"), color=info["color"])
-                        latest, prev = mdf[metric].iloc[-1], mdf[metric].iloc[-2]
-                        lo, hi = info["normal"]
-                        st.metric(f"Último ({'✅' if lo <= latest <= hi else '⚠️'})", f"{latest:.1f}", f"{latest - prev:+.1f}", delta_color="inverse" if metric != "Hemoglobina (g/dL)" else "normal")
-                        st.caption(f"Normal: {lo}–{hi}")
-        else:
-            st.info("2+ registros necesarios para tendencias.")
-    else:
-        st.info("Sin registros de laboratorio aún.")
-
-st.markdown("---")
-
-# ══════════════════════════════════════════════
-# Generate plan
-# ══════════════════════════════════════════════
-st.header("2️⃣ Consideraciones Especiales y Generar Plan")
-special_considerations = st.text_area("Consideraciones Especiales", placeholder="Alergias, preferencias, restricciones...", height=100)
-
-if st.button("🤖 Generar Plan", type="primary", disabled=not st.session_state.patient_created):
-    if not api_key:
-        st.error(f"⚠️ Se requiere API key de {ai_provider}.")
-    else:
-        try:
-            with st.spinner(f"Generando plan ({ai_provider})..."):
-                with get_db() as s:
-                    patient, labs = _load_patient_and_labs(s, st.session_state.current_patient_id)
-                    plan_text = generate_diet_plan(patient, labs, special_considerations, api_key, ai_provider)
-                    plan = DietPlan(patient_id=patient.id, plan_details=plan_text, special_considerations=special_considerations, status="active")
-                    s.add(plan)
-                    s.flush()
-                    st.session_state.update(plan_generated=True, current_plan=plan_text, current_plan_id=plan.id)
-                st.success(f"✅ Plan generado (ID: {st.session_state.current_plan_id})")
-                st.rerun()
-        except Exception as e:
-            _show_error("al generar plan", e)
-
-st.markdown("---")
-
-# ══════════════════════════════════════════════
-# Past plans
-# ══════════════════════════════════════════════
-if st.session_state.patient_created and st.session_state.current_patient_id:
-    st.header("📚 Planes Anteriores")
-    with get_db() as s:
-        past_plans = s.query(DietPlan).filter_by(patient_id=st.session_state.current_patient_id).order_by(DietPlan.created_at.desc()).all()
-        s.expunge_all()
-    if past_plans:
-        st.info(f"{len(past_plans)} plan(es)")
-        for idx, plan in enumerate(past_plans):
-            with st.expander(f"📋 Plan #{idx + 1} - {plan.created_at.strftime('%d/%m/%Y %H:%M')}", expanded=(len(past_plans) == 1)):
-                render_plan_card(plan, prefix=f"p{idx}")
-    else:
-        st.info("Sin planes guardados.")
-
-st.markdown("---")
-
-# ══════════════════════════════════════════════
-# Current plan & modifications
-# ══════════════════════════════════════════════
-if st.session_state.plan_generated and st.session_state.current_plan:
-    st.header("3️⃣ Plan Generado")
-    st.text_area("Plan", value=st.session_state.current_plan, height=400, disabled=True)
-    st.download_button("📥 Descargar", data=st.session_state.current_plan, file_name=f"plan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", mime="text/plain")
+    with cb2:
+        if st.session_state.load_existing_patient:
+            if st.button("🔄 Actualizar Paciente", type="primary"):
+                if not (name and age and weight and height):
+                    st.error("Completa los campos requeridos (*)")
+                else:
+                    try:
+                        with get_db() as s:
+                            p = s.query(Patient).filter_by(id=st.session_state.current_patient_id).first()
+                            if not p:
+                                st.error("Paciente no encontrado")
+                            else:
+                                p.name, p.age, p.gender = name, int(age), GENDER_TO_DB.get(gender, "other")
+                                p.weight, p.height = float(weight), float(height)
+                                p.health_conditions, p.bmi, p.updated_at = _parse_csv(health_conditions), calculate_bmi(weight, height), _utcnow()
+                                if has_labs:
+                                    s.add(LabValue(patient_id=p.id, **lab_kw))
+                                st.session_state.update(patient_name=name, patient_age=age, patient_gender=gender, patient_weight=weight, patient_height=height, patient_health_conditions=health_conditions, patient_glucose=glucose, patient_cholesterol=cholesterol, patient_triglycerides=triglycerides, patient_hemoglobin=hemoglobin)
+                                st.success(f"✅ Actualizado (ID: {p.id})")
+                    except Exception as e:
+                        _show_error("al actualizar paciente", e)
 
     st.markdown("---")
-    st.subheader("Modificar y Regenerar")
-    modifications = st.text_area("Modificaciones", placeholder="ej: Más proteína, menos carbohidratos", height=100)
 
-    if st.button("🔄 Regenerar Plan", type="secondary", disabled=not modifications):
+with tab_labs:
+    # ══════════════════════════════════════════════
+    # Lab history
+    # ══════════════════════════════════════════════
+    if st.session_state.patient_created and st.session_state.current_patient_id:
+        st.header("🔬 Historial de Laboratorio")
+        with get_db() as s:
+            all_labs = s.query(LabValue).filter_by(patient_id=st.session_state.current_patient_id).order_by(LabValue.test_date.asc()).all()
+            s.expunge_all()
+
+        if all_labs:
+            df = pd.DataFrame([{"Fecha": l.test_date, "Glucosa (mg/dL)": l.glucose, "Colesterol (mg/dL)": l.cholesterol, "Triglicéridos (mg/dL)": l.triglycerides, "Hemoglobina (g/dL)": l.hemoglobin} for l in all_labs])
+            with st.expander("📊 Tabla de resultados", expanded=False):
+                st.dataframe(df, use_container_width=True, hide_index=True)
+
+            if len(all_labs) >= 2:
+                st.subheader("📈 Tendencias")
+                cc1, cc2 = st.columns(2)
+                for idx, (metric, info) in enumerate(LAB_METRICS.items()):
+                    with (cc1 if idx % 2 == 0 else cc2):
+                        mdf = df[["Fecha", metric]].dropna(subset=[metric])
+                        if len(mdf) >= 2:
+                            st.markdown(f"**{metric}**")
+                            st.line_chart(mdf.set_index("Fecha"), color=info["color"])
+                            latest, prev = mdf[metric].iloc[-1], mdf[metric].iloc[-2]
+                            status = lab_status(metric, latest)
+                            lo, hi = info["normal"]
+                            # delta_color="off": status icon is source of truth.
+                            # Direction-based coloring is clinically misleading
+                            # (e.g. hemoglobin 4→5 is "up" but still critical).
+                            st.metric(
+                                label=f"Último ({LAB_STATUS_ICON[status]})",
+                                value=f"{latest:.1f}",
+                                delta=f"{latest - prev:+.1f}",
+                                delta_color="off",
+                            )
+                            if status == "critical":
+                                st.error(f"🚨 Valor crítico — rango normal: {lo}–{hi}")
+                            elif status == "warning":
+                                st.warning(f"⚠️ Fuera de rango — normal: {lo}–{hi}")
+                            else:
+                                st.caption(f"Normal: {lo}–{hi}")
+            else:
+                st.info("2+ registros necesarios para tendencias.")
+        else:
+            st.info("Sin registros de laboratorio aún.")
+
+    st.markdown("---")
+
+with tab_generar:
+    # ══════════════════════════════════════════════
+    # Generate plan
+    # ══════════════════════════════════════════════
+    st.header("2️⃣ Consideraciones Especiales y Generar Plan")
+    special_considerations = st.text_area("Consideraciones Especiales", placeholder="Alergias, preferencias, restricciones...", height=100)
+
+    if st.button("🤖 Generar Plan", type="primary", disabled=not st.session_state.patient_created):
         if not api_key:
             st.error(f"⚠️ Se requiere API key de {ai_provider}.")
         else:
             try:
-                with st.spinner(f"Regenerando ({ai_provider})..."):
+                with st.spinner(f"Generando plan con {ai_provider}... Esto puede tomar 30-60 segundos."):
                     with get_db() as s:
                         patient, labs = _load_patient_and_labs(s, st.session_state.current_patient_id)
-                        mod = f"{special_considerations}\n\nModificaciones: {modifications}"
-                        new_text = generate_diet_plan(patient, labs, mod, api_key, ai_provider)
-                        existing = s.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
-                        if existing:
-                            existing.plan_details, existing.special_considerations, existing.updated_at = new_text, mod, _utcnow()
-                            st.session_state.current_plan = new_text
-                            st.success("✅ Regenerado!")
-                        else:
-                            st.error("Plan no encontrado")
+                        plan_text = generate_diet_plan(patient, labs, special_considerations, api_key, ai_provider)
+                        plan = DietPlan(patient_id=patient.id, plan_details=plan_text, special_considerations=special_considerations, status="active")
+                        s.add(plan)
+                        s.flush()
+                        st.session_state.update(plan_generated=True, current_plan=plan_text, current_plan_id=plan.id)
+                    st.success(f"✅ Plan generado (ID: {st.session_state.current_plan_id})")
                     st.rerun()
             except Exception as e:
-                _show_error("al regenerar plan", e)
+                _show_error("al generar plan", e)
 
-# ── Footer ──
-st.markdown("---")
-st.caption("💡 Usa el selector en la parte superior para cambiar de paciente.")
+    st.markdown("---")
+
+with tab_historial:
+    # ══════════════════════════════════════════════
+    # Past plans
+    # ══════════════════════════════════════════════
+    if st.session_state.patient_created and st.session_state.current_patient_id:
+        st.header("📚 Planes Anteriores")
+        with get_db() as s:
+            past_plans = s.query(DietPlan).filter_by(patient_id=st.session_state.current_patient_id).order_by(DietPlan.created_at.desc()).all()
+            s.expunge_all()
+        if past_plans:
+            st.info(f"{len(past_plans)} plan(es)")
+            for idx, plan in enumerate(past_plans):
+                with st.expander(f"📋 Plan #{idx + 1} - {plan.created_at.strftime('%d/%m/%Y %H:%M')}", expanded=(len(past_plans) == 1)):
+                    render_plan_card(plan, prefix=f"p{idx}")
+        else:
+            st.info("Sin planes guardados.")
+
+    st.markdown("---")
+
+with tab_generar:
+    # ══════════════════════════════════════════════
+    # Current plan & modifications
+    # ══════════════════════════════════════════════
+    if st.session_state.plan_generated and st.session_state.current_plan:
+        st.header("3️⃣ Plan Generado")
+        st.text_area("Plan", value=st.session_state.current_plan, height=400, disabled=True)
+        st.download_button("📥 Descargar", data=st.session_state.current_plan, file_name=f"plan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", mime="text/plain")
+
+        st.markdown("---")
+        st.subheader("Modificar y Regenerar")
+        modifications = st.text_area("Modificaciones", placeholder="ej: Más proteína, menos carbohidratos", height=100)
+
+        if st.button("🔄 Regenerar Plan", type="secondary", disabled=not modifications):
+            if not api_key:
+                st.error(f"⚠️ Se requiere API key de {ai_provider}.")
+            else:
+                try:
+                    with st.spinner(f"Regenerando con {ai_provider}... Esto puede tomar 30-60 segundos."):
+                        with get_db() as s:
+                            patient, labs = _load_patient_and_labs(s, st.session_state.current_patient_id)
+                            mod = f"{special_considerations}\n\nModificaciones: {modifications}"
+                            new_text = generate_diet_plan(patient, labs, mod, api_key, ai_provider)
+                            existing = s.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
+                            if existing:
+                                existing.plan_details, existing.special_considerations, existing.updated_at = new_text, mod, _utcnow()
+                                st.session_state.current_plan = new_text
+                                st.success("✅ Regenerado!")
+                            else:
+                                st.error("Plan no encontrado")
+                        st.rerun()
+                except Exception as e:
+                    _show_error("al regenerar plan", e)
+
+    # ── Footer ──
+    st.markdown("---")
+    st.caption("💡 Usa el selector en la parte superior para cambiar de paciente.")
