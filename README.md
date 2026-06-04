@@ -1,6 +1,6 @@
 # nutrition-assistant-mvp
 
-Streamlit app for generating personalized nutrition plans using OpenAI or Anthropic, with data stored in Supabase Postgres.
+Streamlit app for generating personalized nutrition plans using OpenAI or Anthropic, with data stored in Supabase Postgres..
 
 ## Features
 
