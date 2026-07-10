@@ -18,6 +18,46 @@ from supabase import create_client as create_supabase_client
 st.set_page_config(page_title="Asistente de Nutrición con IA", page_icon="🥗", layout="wide")
 
 # ──────────────────────────────────────────────
+# Global CSS: font, hidden Streamlit chrome, card-style metrics.
+# data-testid selectors are the stable hooks across Streamlit versions;
+# avoid targeting hashed st-emotion class names.
+# ──────────────────────────────────────────────
+_APP_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* Typeface: element-level selectors so Material icon spans keep their own font */
+html, body, p, label, input, textarea, select, button,
+h1, h2, h3, h4, h5, h6,
+div[data-testid="stMarkdownContainer"], [data-testid="stMetric"] * {
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+}
+code, pre, code * { font-family: 'Source Code Pro', ui-monospace, monospace; }
+
+/* Hide Streamlit chrome: menu, footer, rainbow strip, toolbar */
+#MainMenu, footer, [data-testid="stDecoration"], [data-testid="stToolbar"] { display: none; }
+
+/* Tighter page: less dead space on top, readable max width */
+.block-container, [data-testid="stMainBlockContainer"] { padding-top: 1.2rem; max-width: 1200px; }
+
+/* Metrics as cards */
+[data-testid="stMetric"] {
+    background: #FFFFFF;
+    border: 1px solid #E2EAE2;
+    border-radius: 10px;
+    padding: 0.6rem 0.9rem;
+    box-shadow: 0 1px 2px rgba(20, 40, 20, 0.05);
+}
+
+/* Chunkier tabs */
+button[data-baseweb="tab"] { font-weight: 600; padding: 0.6rem 1.1rem; }
+
+[data-testid="stSidebar"] { border-right: 1px solid #E2EAE2; }
+</style>
+"""
+st.markdown(_APP_CSS, unsafe_allow_html=True)
+
+# ──────────────────────────────────────────────
 # Authentication
 # ──────────────────────────────────────────────
 import time as _time
@@ -64,8 +104,18 @@ def login_page():
     # Centered card: layout="wide" would otherwise stretch the form across the viewport
     _, center, _ = st.columns([1, 1.2, 1])
     with center:
-        st.markdown("<h1 style='text-align:center;margin-bottom:0'>🥗 Asistente de Nutrición con IA</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;color:#6B7280'>Planes de alimentación personalizados para tus pacientes</p>", unsafe_allow_html=True)
+        st.markdown(
+            """
+<div style="background:linear-gradient(135deg,#2E7D32 0%,#66BB6A 100%);
+            padding:1.6rem 1.2rem;border-radius:14px;margin-bottom:1.2rem;text-align:center;
+            box-shadow:0 4px 14px rgba(46,125,50,.3)">
+  <div style="font-size:2.4rem;line-height:1">🥗</div>
+  <div style="color:#FFFFFF;font-size:1.45rem;font-weight:700;margin-top:.4rem">Asistente de Nutrición con IA</div>
+  <div style="color:#E8F5E9;font-size:.92rem;margin-top:.3rem">Planes de alimentación personalizados para tus pacientes</div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
 
         lockout_left = _login_lockout_remaining()
         with st.form("login_form"):
@@ -624,7 +674,7 @@ def render_patient_summary(patient, latest_labs):
             st.markdown("**Condiciones**")
             if patient.health_conditions:
                 chips = "".join(
-                    f"<span style='background:#E8EAF6;color:#3F51B5;padding:3px 10px;border-radius:12px;font-size:0.85em;margin:2px;display:inline-block'>{c}</span>"
+                    f"<span style='background:#E0F2F1;color:#00695C;padding:3px 10px;border-radius:12px;font-size:0.85em;margin:2px;display:inline-block'>{c}</span>"
                     for c in patient.health_conditions
                 )
                 st.markdown(chips, unsafe_allow_html=True)
@@ -935,7 +985,17 @@ def example_plans_dialog():
 # MAIN APPLICATION
 # ══════════════════════════════════════════════
 init_session_state()
-st.title("🥗 Asistente de Nutrición con IA")
+st.markdown(
+    """
+<div style="background:linear-gradient(90deg,#2E7D32 0%,#43A047 60%,#66BB6A 100%);
+            padding:1.1rem 1.6rem;border-radius:12px;margin-bottom:1.2rem;
+            box-shadow:0 2px 8px rgba(46,125,50,.25)">
+  <div style="color:#FFFFFF;font-size:1.55rem;font-weight:700;line-height:1.2">🥗 Asistente de Nutrición con IA</div>
+  <div style="color:#E8F5E9;font-size:.95rem;margin-top:.25rem">Planes de alimentación personalizados para tus pacientes</div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
 # ── Sidebar ──
 with st.sidebar:
