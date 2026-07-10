@@ -56,6 +56,20 @@ code, pre, code * { font-family: 'Source Code Pro', ui-monospace, monospace; }
 button[data-baseweb="tab"] { font-weight: 600; padding: 0.6rem 1.1rem; }
 
 [data-testid="stSidebar"] { border-right: 1px solid #E2E8F0; }
+
+/* Sidebar: trim the dead space above the first section */
+[data-testid="stSidebarUserContent"] { padding-top: 1.2rem; }
+
+/* Headings: Streamlit defaults are oversized for a dense clinical app */
+h1 { font-size: 1.8rem !important; }
+h2 { font-size: 1.4rem !important; }
+h3 { font-size: 1.15rem !important; }
+
+/* Metric values: the 2.25rem default truncates ("95 …") in column layouts */
+[data-testid="stMetricValue"] { font-size: 1.55rem; }
+
+/* Hide Streamlit Cloud floating badges (crown / manage-app / status) */
+[class*="viewerBadge"], [data-testid="manage-app-button"], [data-testid="stStatusWidget"] { display: none; }
 </style>
 """
 st.markdown(_APP_CSS, unsafe_allow_html=True)
@@ -658,29 +672,42 @@ def render_patient_summary(patient, latest_labs):
         st.error("🚨 **VALORES CRÍTICOS** — revisar urgentemente: " + " · ".join(critical_alerts))
 
     with st.container(border=True):
-        c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
-        with c1:
-            st.markdown(f"### 👤 {patient.name}")
-            st.caption(f"ID: {patient.id} · {patient.age} años · {GENDER_FROM_DB.get(patient.gender, patient.gender)}")
-        with c2:
-            st.metric("Peso", f"{patient.weight:g} kg")
-            st.metric("Altura", f"{patient.height:g} cm")
-        with c3:
-            st.metric("IMC", f"{patient.bmi:.1f}" if patient.bmi else "—")
+        # Header row: name left, condition chips right
+        head_l, head_r = st.columns([3, 2], vertical_alignment="center")
+        with head_l:
             st.markdown(
-                f"<span style='background:{bmi_color};color:white;padding:2px 8px;border-radius:8px;font-size:0.8em'>{bmi_label}</span>",
+                f"<div style='font-size:1.3rem;font-weight:700;color:#0F172A'>👤 {patient.name}</div>"
+                f"<div style='color:#64748B;font-size:.85rem;margin-top:.15rem'>ID: {patient.id} · {patient.age} años · {GENDER_FROM_DB.get(patient.gender, patient.gender)}</div>",
                 unsafe_allow_html=True,
             )
-        with c4:
-            st.markdown("**Condiciones**")
+        with head_r:
             if patient.health_conditions:
                 chips = "".join(
                     f"<span style='background:#CCFBF1;color:#0F766E;padding:3px 10px;border-radius:12px;font-size:0.85em;margin:2px;display:inline-block'>{c}</span>"
                     for c in patient.health_conditions
                 )
-                st.markdown(chips, unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:right'>{chips}</div>", unsafe_allow_html=True)
             else:
-                st.caption("Ninguna registrada")
+                st.markdown("<div style='text-align:right;color:#94A3B8;font-size:.85rem'>Sin condiciones registradas</div>", unsafe_allow_html=True)
+
+        # Vitals row: one metric per column so values never truncate
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            st.metric("Peso", f"{patient.weight:g} kg")
+        with m2:
+            st.metric("Altura", f"{patient.height:g} cm")
+        with m3:
+            st.metric("IMC", f"{patient.bmi:.1f}" if patient.bmi else "—")
+        with m4:
+            # Styled to match st.metric cards so the row reads as one unit
+            st.markdown(
+                f"""<div style='background:#FFFFFF;border:1px solid #E2E8F0;border-radius:10px;
+                     padding:0.6rem 0.9rem;box-shadow:0 1px 2px rgba(15,23,42,.05)'>
+  <div style='color:#64748B;font-size:.8rem'>Categoría IMC</div>
+  <div style='margin-top:.4rem'><span style='background:{bmi_color};color:white;padding:3px 12px;border-radius:12px;font-size:.9rem;font-weight:600'>{bmi_label}</span></div>
+</div>""",
+                unsafe_allow_html=True,
+            )
 
         if latest_labs:
             st.markdown("**Últimos resultados de laboratorio**")
@@ -1062,7 +1089,6 @@ with st.sidebar:
 # ══════════════════════════════════════════════
 # Patient selector
 # ══════════════════════════════════════════════
-st.header("👥 Seleccionar Paciente")
 with get_db() as s:
     all_patients = s.query(Patient).order_by(Patient.created_at.desc()).all()
     s.expunge_all()
