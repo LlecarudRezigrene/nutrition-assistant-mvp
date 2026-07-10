@@ -20,7 +20,7 @@ streamlit run streamlit_app.py
 
 Requires `.streamlit/secrets.toml` — see README for the full list (`DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, optional API keys, `[auth]` username + SHA-256 password_hash).
 
-Theme lives in `.streamlit/config.toml` (committed; clinical green). Secrets stay gitignored.
+Theme lives in `.streamlit/config.toml` (committed; slate + teal, `#0D9488` primary). Global CSS (`_APP_CSS` after page config) sets the Inter font and hides Streamlit chrome — it keeps `stHeader` visible-but-transparent and pads the page 3.75rem to clear its fixed height; don't reduce that padding or content clips under the header. Secrets stay gitignored.
 
 ## File layout (single file, banner-comment sections)
 

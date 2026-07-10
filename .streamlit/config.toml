@@ -1,11 +1,16 @@
-# Theme: clinical green — applies locally and on Streamlit Cloud.
+# Theme: slate + teal — applies locally and on Streamlit Cloud.
 # Secrets stay in .streamlit/secrets.toml (gitignored).
 [theme]
 base = "light"
-primaryColor = "#2E7D32"
-backgroundColor = "#FBFCFB"
-secondaryBackgroundColor = "#EFF5EF"
-textColor = "#1F2937"
-borderColor = "#DCE6DC"
+primaryColor = "#0D9488"
+backgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#EEF2F7"
+textColor = "#0F172A"
+borderColor = "#E2E8F0"
 baseRadius = "10px"
 font = "sans serif"
+
+# White sidebar against the slate main background adds depth
+[theme.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F1F5F9"

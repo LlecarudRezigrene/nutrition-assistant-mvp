@@ -34,25 +34,28 @@ div[data-testid="stMarkdownContainer"], [data-testid="stMetric"] * {
 }
 code, pre, code * { font-family: 'Source Code Pro', ui-monospace, monospace; }
 
-/* Hide Streamlit chrome: menu, footer, rainbow strip, toolbar */
+/* Hide Streamlit chrome: menu, footer, rainbow strip, toolbar.
+   Keep the header element itself (transparent) — sidebar controls live
+   there — and pad the page enough to clear its fixed height, otherwise
+   the top of the page renders clipped underneath it. */
 #MainMenu, footer, [data-testid="stDecoration"], [data-testid="stToolbar"] { display: none; }
+[data-testid="stHeader"] { background: transparent; }
 
-/* Tighter page: less dead space on top, readable max width */
-.block-container, [data-testid="stMainBlockContainer"] { padding-top: 1.2rem; max-width: 1200px; }
+.block-container, [data-testid="stMainBlockContainer"] { padding-top: 3.75rem; }
 
 /* Metrics as cards */
 [data-testid="stMetric"] {
     background: #FFFFFF;
-    border: 1px solid #E2EAE2;
+    border: 1px solid #E2E8F0;
     border-radius: 10px;
     padding: 0.6rem 0.9rem;
-    box-shadow: 0 1px 2px rgba(20, 40, 20, 0.05);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
 /* Chunkier tabs */
 button[data-baseweb="tab"] { font-weight: 600; padding: 0.6rem 1.1rem; }
 
-[data-testid="stSidebar"] { border-right: 1px solid #E2EAE2; }
+[data-testid="stSidebar"] { border-right: 1px solid #E2E8F0; }
 </style>
 """
 st.markdown(_APP_CSS, unsafe_allow_html=True)
@@ -106,12 +109,10 @@ def login_page():
     with center:
         st.markdown(
             """
-<div style="background:linear-gradient(135deg,#2E7D32 0%,#66BB6A 100%);
-            padding:1.6rem 1.2rem;border-radius:14px;margin-bottom:1.2rem;text-align:center;
-            box-shadow:0 4px 14px rgba(46,125,50,.3)">
-  <div style="font-size:2.4rem;line-height:1">🥗</div>
-  <div style="color:#FFFFFF;font-size:1.45rem;font-weight:700;margin-top:.4rem">Asistente de Nutrición con IA</div>
-  <div style="color:#E8F5E9;font-size:.92rem;margin-top:.3rem">Planes de alimentación personalizados para tus pacientes</div>
+<div style="text-align:center;margin-bottom:.8rem">
+  <div style="font-size:2.6rem;line-height:1">🥗</div>
+  <div style="color:#0F172A;font-size:1.5rem;font-weight:700;margin-top:.4rem">Asistente de Nutrición con IA</div>
+  <div style="color:#64748B;font-size:.95rem;margin-top:.2rem">Planes de alimentación personalizados para tus pacientes</div>
 </div>
 """,
             unsafe_allow_html=True,
@@ -674,7 +675,7 @@ def render_patient_summary(patient, latest_labs):
             st.markdown("**Condiciones**")
             if patient.health_conditions:
                 chips = "".join(
-                    f"<span style='background:#E0F2F1;color:#00695C;padding:3px 10px;border-radius:12px;font-size:0.85em;margin:2px;display:inline-block'>{c}</span>"
+                    f"<span style='background:#CCFBF1;color:#0F766E;padding:3px 10px;border-radius:12px;font-size:0.85em;margin:2px;display:inline-block'>{c}</span>"
                     for c in patient.health_conditions
                 )
                 st.markdown(chips, unsafe_allow_html=True)
@@ -987,11 +988,15 @@ def example_plans_dialog():
 init_session_state()
 st.markdown(
     """
-<div style="background:linear-gradient(90deg,#2E7D32 0%,#43A047 60%,#66BB6A 100%);
-            padding:1.1rem 1.6rem;border-radius:12px;margin-bottom:1.2rem;
-            box-shadow:0 2px 8px rgba(46,125,50,.25)">
-  <div style="color:#FFFFFF;font-size:1.55rem;font-weight:700;line-height:1.2">🥗 Asistente de Nutrición con IA</div>
-  <div style="color:#E8F5E9;font-size:.95rem;margin-top:.25rem">Planes de alimentación personalizados para tus pacientes</div>
+<div style="display:flex;align-items:center;gap:.9rem;background:#FFFFFF;
+            border:1px solid #E2E8F0;border-left:5px solid #0D9488;
+            padding:.9rem 1.3rem;border-radius:12px;margin-bottom:1rem;
+            box-shadow:0 1px 3px rgba(15,23,42,.06)">
+  <div style="font-size:2rem;line-height:1">🥗</div>
+  <div>
+    <div style="color:#0F172A;font-size:1.35rem;font-weight:700;line-height:1.25">Asistente de Nutrición con IA</div>
+    <div style="color:#64748B;font-size:.9rem">Planes de alimentación personalizados para tus pacientes</div>
+  </div>
 </div>
 """,
     unsafe_allow_html=True,
