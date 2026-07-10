@@ -2,6 +2,7 @@ import streamlit as st
 import io
 import hashlib
 import hmac
+import html
 from contextlib import contextmanager
 from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, DateTime, Text, ForeignKey, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
@@ -95,24 +96,29 @@ def _check_credentials(username: str, password: str) -> bool:
     return hmac.compare_digest(username, stored_user) and hmac.compare_digest(password_hash, stored_hash)
 
 
+@st.cache_resource
+def _login_throttle() -> dict:
+    """Shared across all sessions: a per-session throttle could be reset
+    by simply refreshing the page, defeating the lockout."""
+    return {"attempts": [], "locked_until": 0.0}
+
+
 def _login_lockout_remaining() -> int:
     """Return seconds remaining on a lockout, or 0 if not locked."""
-    locked_until = st.session_state.get("login_locked_until", 0)
-    remaining = int(locked_until - _time.time())
+    remaining = int(_login_throttle()["locked_until"] - _time.time())
     return max(0, remaining)
 
 
 def _record_failed_attempt():
     """Track a failed attempt; trigger lockout if threshold exceeded."""
+    throttle = _login_throttle()
     now = _time.time()
-    attempts = st.session_state.get("login_attempts", [])
     # Keep only attempts within the rolling window
-    attempts = [t for t in attempts if now - t < LOGIN_WINDOW_SECS]
-    attempts.append(now)
-    st.session_state.login_attempts = attempts
-    if len(attempts) >= LOGIN_MAX_ATTEMPTS:
-        st.session_state.login_locked_until = now + LOGIN_LOCKOUT_SECS
-        st.session_state.login_attempts = []  # reset counter after lockout
+    throttle["attempts"] = [t for t in throttle["attempts"] if now - t < LOGIN_WINDOW_SECS]
+    throttle["attempts"].append(now)
+    if len(throttle["attempts"]) >= LOGIN_MAX_ATTEMPTS:
+        throttle["locked_until"] = now + LOGIN_LOCKOUT_SECS
+        throttle["attempts"] = []  # reset counter after lockout
 
 
 def login_page():
@@ -146,13 +152,13 @@ def login_page():
         if submitted:
             if _check_credentials(username, password):
                 # Successful login: clear any failed-attempt history
-                st.session_state.login_attempts = []
-                st.session_state.login_locked_until = 0
+                throttle = _login_throttle()
+                throttle["attempts"], throttle["locked_until"] = [], 0.0
                 st.session_state.authenticated = True
                 st.rerun()
             else:
                 _record_failed_attempt()
-                remaining_attempts = LOGIN_MAX_ATTEMPTS - len(st.session_state.get("login_attempts", []))
+                remaining_attempts = LOGIN_MAX_ATTEMPTS - len(_login_throttle()["attempts"])
                 if _login_lockout_remaining() > 0:
                     st.error(f"🔒 Demasiados intentos. Bloqueado por {LOGIN_LOCKOUT_SECS} segundos.")
                 else:
@@ -201,6 +207,14 @@ def lab_status(metric: str, value) -> str:
 
 
 LAB_STATUS_ICON = {"critical": "🚨", "warning": "⚠️", "normal": "✅", "unknown": "—"}
+
+# Display metric name → LabValue model field
+LAB_FIELDS = [
+    ("Glucosa (mg/dL)", "glucose"),
+    ("Colesterol (mg/dL)", "cholesterol"),
+    ("Triglicéridos (mg/dL)", "triglycerides"),
+    ("Hemoglobina (g/dL)", "hemoglobin"),
+]
 
 
 def bmi_category(bmi) -> tuple[str, str]:
@@ -268,6 +282,7 @@ def build_lab_trend_chart(mdf: pd.DataFrame, metric: str, info: dict):
 
 
 REFERENCE_BUCKET = "reference-docs"
+MAX_DOC_CHARS = 60_000  # cap extracted text per document: bounds prompt size and memory
 
 _STATE_DEFAULTS = {
     "patient_created": False, "plan_generated": False,
@@ -403,7 +418,7 @@ def load_reference_documents() -> dict[str, str]:
                 data = client.storage.from_(REFERENCE_BUCKET).download(f["name"])
                 extracted = "\n".join(page.extract_text() or "" for page in PyPDF2.PdfReader(io.BytesIO(data)).pages)
                 if extracted.strip():
-                    docs[f["name"]] = extracted.strip()
+                    docs[f["name"]] = extracted.strip()[:MAX_DOC_CHARS]
             except Exception:
                 st.warning(f"⚠️ No se pudo leer '{f['name']}'")
         return docs
@@ -437,7 +452,11 @@ def _parse_csv(raw: str) -> list[str]:
 
 
 def _show_error(context: str, error: Exception):
-    st.error(f"Error {context}: {error}")
+    """Generic user-facing error; raw exception text can leak connection
+    strings or paths, so detail requires DEBUG_ERRORS=true in secrets."""
+    st.error(f"❌ Error {context}.")
+    if st.secrets.get("DEBUG_ERRORS", False):
+        st.code(f"{type(error).__name__}: {error}")
 
 
 def _gs(key: str):
@@ -458,13 +477,16 @@ def extract_file_content(uploaded_file) -> str:
     ext = uploaded_file.name.rsplit(".", 1)[-1].lower()
     try:
         if ext in ("txt", "md"):
-            return uploaded_file.read().decode("utf-8")
-        if ext == "docx":
+            content = uploaded_file.read().decode("utf-8")
+        elif ext == "docx":
             import docx
-            return "\n".join(p.text for p in docx.Document(uploaded_file).paragraphs)
-        if ext == "pdf":
+            content = "\n".join(p.text for p in docx.Document(uploaded_file).paragraphs)
+        elif ext == "pdf":
             import PyPDF2
-            return "\n".join(page.extract_text() or "" for page in PyPDF2.PdfReader(uploaded_file).pages)
+            content = "\n".join(page.extract_text() or "" for page in PyPDF2.PdfReader(uploaded_file).pages)
+        else:
+            return ""
+        return content[:MAX_DOC_CHARS]
     except Exception as e:
         _show_error("al procesar archivo", e)
     return ""
@@ -473,7 +495,7 @@ def extract_file_content(uploaded_file) -> str:
 # ──────────────────────────────────────────────
 # Example plan matching
 # ──────────────────────────────────────────────
-def find_relevant_examples(patient, lab_values, special_considerations, top_k=2):
+def find_relevant_examples(patient, special_considerations, top_k=2):
     with get_db() as session:
         all_examples = session.query(ExamplePlan).all()
         session.expunge_all()
@@ -585,42 +607,35 @@ ANTHROPIC_MODEL = "claude-sonnet-4-6"
 MAX_TOKENS_GENERATION = 8000
 
 
+def _ai_complete(prompt: str, api_key: str, provider: str, max_tokens: int) -> str:
+    """Single-turn completion against the selected provider."""
+    if provider == "OpenAI":
+        resp = OpenAI(api_key=api_key).chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_completion_tokens=max_tokens,
+        )
+        return resp.choices[0].message.content
+    msg = anthropic.Anthropic(api_key=api_key).messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text
+
+
 def validate_api_key(api_key: str, provider: str) -> tuple[bool, str]:
     """Returns (is_valid, error_message). error_message is '' on success."""
     try:
-        if provider == "OpenAI":
-            OpenAI(api_key=api_key).chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[{"role": "user", "content": "hi"}],
-                max_completion_tokens=10,
-            )
-        else:
-            anthropic.Anthropic(api_key=api_key).messages.create(
-                model=ANTHROPIC_MODEL,
-                max_tokens=10,
-                messages=[{"role": "user", "content": "hi"}],
-            )
+        _ai_complete("hi", api_key, provider, 10)
         return True, ""
     except Exception as e:
         return False, str(e)[:300]
 
 
 def generate_diet_plan(patient, lab_values, special_considerations, api_key, provider):
-    prompt = _build_diet_prompt(patient, lab_values, special_considerations, find_relevant_examples(patient, lab_values, special_considerations))
-    if provider == "OpenAI":
-        resp = OpenAI(api_key=api_key).chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_completion_tokens=MAX_TOKENS_GENERATION,
-        )
-        return resp.choices[0].message.content
-    else:
-        msg = anthropic.Anthropic(api_key=api_key).messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=MAX_TOKENS_GENERATION,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return msg.content[0].text
+    prompt = _build_diet_prompt(patient, lab_values, special_considerations, find_relevant_examples(patient, special_considerations))
+    return _ai_complete(prompt, api_key, provider, MAX_TOKENS_GENERATION)
 
 
 # ──────────────────────────────────────────────
@@ -658,12 +673,7 @@ def render_patient_summary(patient, latest_labs):
     # Critical lab check — surface emergencies prominently
     critical_alerts = []
     if latest_labs:
-        for metric, field in [
-            ("Glucosa (mg/dL)", "glucose"),
-            ("Colesterol (mg/dL)", "cholesterol"),
-            ("Triglicéridos (mg/dL)", "triglycerides"),
-            ("Hemoglobina (g/dL)", "hemoglobin"),
-        ]:
+        for metric, field in LAB_FIELDS:
             val = getattr(latest_labs, field, None)
             if lab_status(metric, val) == "critical":
                 short = metric.split(" (")[0]
@@ -675,15 +685,16 @@ def render_patient_summary(patient, latest_labs):
         # Header row: name left, condition chips right
         head_l, head_r = st.columns([3, 2], vertical_alignment="center")
         with head_l:
+            # html.escape: patient-entered text must never reach unsafe_allow_html raw
             st.markdown(
-                f"<div style='font-size:1.3rem;font-weight:700;color:#0F172A'>👤 {patient.name}</div>"
-                f"<div style='color:#64748B;font-size:.85rem;margin-top:.15rem'>ID: {patient.id} · {patient.age} años · {GENDER_FROM_DB.get(patient.gender, patient.gender)}</div>",
+                f"<div style='font-size:1.3rem;font-weight:700;color:#0F172A'>👤 {html.escape(patient.name)}</div>"
+                f"<div style='color:#64748B;font-size:.85rem;margin-top:.15rem'>ID: {patient.id} · {patient.age} años · {html.escape(GENDER_FROM_DB.get(patient.gender, patient.gender))}</div>",
                 unsafe_allow_html=True,
             )
         with head_r:
             if patient.health_conditions:
                 chips = "".join(
-                    f"<span style='background:#CCFBF1;color:#0F766E;padding:3px 10px;border-radius:12px;font-size:0.85em;margin:2px;display:inline-block'>{c}</span>"
+                    f"<span style='background:#CCFBF1;color:#0F766E;padding:3px 10px;border-radius:12px;font-size:0.85em;margin:2px;display:inline-block'>{html.escape(c)}</span>"
                     for c in patient.health_conditions
                 )
                 st.markdown(f"<div style='text-align:right'>{chips}</div>", unsafe_allow_html=True)
@@ -712,12 +723,7 @@ def render_patient_summary(patient, latest_labs):
         if latest_labs:
             st.markdown("**Últimos resultados de laboratorio**")
             lc = st.columns(4)
-            for col, (metric, field) in zip(lc, [
-                ("Glucosa (mg/dL)", "glucose"),
-                ("Colesterol (mg/dL)", "cholesterol"),
-                ("Triglicéridos (mg/dL)", "triglycerides"),
-                ("Hemoglobina (g/dL)", "hemoglobin"),
-            ]):
+            for col, (metric, field) in zip(lc, LAB_FIELDS):
                 val = getattr(latest_labs, field, None)
                 status = lab_status(metric, val)
                 icon = LAB_STATUS_ICON[status]
@@ -731,7 +737,7 @@ def render_patient_summary(patient, latest_labs):
 # ──────────────────────────────────────────────
 # DOCX generation
 # ──────────────────────────────────────────────
-def build_plan_docx(plan_text: str, patient, plan=None) -> bytes:
+def build_plan_docx(plan_text: str, patient) -> bytes:
     """Generate a clean, formatted .docx of a diet plan.
 
     Parses a subset of markdown from the LLM output:
@@ -919,7 +925,7 @@ def render_plan_card(plan, patient, prefix="plan"):
     with c1:
         # Generate docx on render (cheap, ~30-40KB)
         try:
-            docx_bytes = build_plan_docx(plan.plan_details, patient, plan)
+            docx_bytes = build_plan_docx(plan.plan_details, patient)
             st.download_button(
                 "📥 Descargar Word",
                 data=docx_bytes,
@@ -1223,7 +1229,7 @@ with tab_labs:
             s.expunge_all()
 
         if all_labs:
-            df = pd.DataFrame([{"Fecha": l.test_date, "Glucosa (mg/dL)": l.glucose, "Colesterol (mg/dL)": l.cholesterol, "Triglicéridos (mg/dL)": l.triglycerides, "Hemoglobina (g/dL)": l.hemoglobin} for l in all_labs])
+            df = pd.DataFrame([{"Fecha": l.test_date, **{metric: getattr(l, field) for metric, field in LAB_FIELDS}} for l in all_labs])
             with st.expander("📊 Tabla de resultados", expanded=False):
                 st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -1402,9 +1408,7 @@ with tab_generar:
                         _cur_patient, _ = _load_patient_and_labs(s, st.session_state.current_patient_id)
                         s.expunge_all()
                     if _cur_patient:
-                        docx_bytes = build_plan_docx(
-                            st.session_state.current_plan, _cur_patient, plan=None
-                        )
+                        docx_bytes = build_plan_docx(st.session_state.current_plan, _cur_patient)
                         st.download_button(
                             "📥 Descargar Word",
                             data=docx_bytes,

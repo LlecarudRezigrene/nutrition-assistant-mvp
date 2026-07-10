@@ -47,7 +47,10 @@ Defined as SQLAlchemy models; documented in `docs/schema.sql`. Note: that file m
 ## Architectural rules
 
 - All DB access goes through the `get_db()` context manager (commit/rollback/close). Call `session.expunge_all()` before using ORM objects after the session closes.
-- Every DB/AI/file operation is wrapped in try/except with a Spanish `st.error` via `_show_error` — the app must never crash on the user. DB connection failure fails closed with `st.stop()`.
+- Every DB/AI/file operation is wrapped in try/except with a Spanish `st.error` via `_show_error` — the app must never crash on the user. Errors are generic to the user; exception detail only shows with `DEBUG_ERRORS = true` in secrets. DB connection failure fails closed with `st.stop()`.
+- Anything user-entered that goes into `unsafe_allow_html` markup must pass through `html.escape()` (see `render_patient_summary`).
+- Login throttle state lives in `@st.cache_resource` (cross-session), NOT session state — session state resets on refresh, which would defeat the lockout.
+- Extracted document text (uploads, reference PDFs) is capped at `MAX_DOC_CHARS`.
 - Streamlit idioms: unique widget `key=` with prefixes for repeated components (`f"{prefix}_dl_{plan.id}"`), `st.rerun()` after state mutations, `@st.cache_resource` for clients/engine, `@st.cache_data(ttl=...)` for fetched data.
 - Destructive actions use a two-step confirm (pending flag in session state — see regenerate flow and plan delete in `render_plan_card`).
 - Admin flows (example plans) live in `@st.dialog` modals, not inline in the main page. Inside a dialog, `st.rerun()` closes it; `st.rerun(scope="fragment")` refreshes it in place.
