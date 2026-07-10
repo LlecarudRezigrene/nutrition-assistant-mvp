@@ -1,0 +1,8 @@
+# Theme: clinical green — applies locally and on Streamlit Cloud.
+# Secrets stay in .streamlit/secrets.toml (gitignored).
+[theme]
+primaryColor = "#2E7D32"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F7F2"
+textColor = "#1F2937"
+font = "sans serif"

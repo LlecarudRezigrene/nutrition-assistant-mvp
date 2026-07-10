@@ -61,34 +61,37 @@ def _record_failed_attempt():
 def login_page():
     if st.session_state.get("authenticated"):
         return True
-    st.title("🥗 Asistente de Nutrición con IA")
-    st.markdown("---")
-    st.subheader("🔐 Iniciar Sesión")
+    # Centered card: layout="wide" would otherwise stretch the form across the viewport
+    _, center, _ = st.columns([1, 1.2, 1])
+    with center:
+        st.markdown("<h1 style='text-align:center;margin-bottom:0'>🥗 Asistente de Nutrición con IA</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;color:#6B7280'>Planes de alimentación personalizados para tus pacientes</p>", unsafe_allow_html=True)
 
-    lockout_left = _login_lockout_remaining()
-    with st.form("login_form"):
-        username = st.text_input("Usuario", disabled=lockout_left > 0)
-        password = st.text_input("Contraseña", type="password", disabled=lockout_left > 0)
-        submitted = st.form_submit_button("Entrar", type="primary", disabled=lockout_left > 0)
+        lockout_left = _login_lockout_remaining()
+        with st.form("login_form"):
+            st.subheader("🔐 Iniciar Sesión")
+            username = st.text_input("Usuario", disabled=lockout_left > 0)
+            password = st.text_input("Contraseña", type="password", disabled=lockout_left > 0)
+            submitted = st.form_submit_button("Entrar", type="primary", disabled=lockout_left > 0, use_container_width=True)
 
-    if lockout_left > 0:
-        st.error(f"🔒 Demasiados intentos fallidos. Espera {lockout_left} segundos.")
-        return False
+        if lockout_left > 0:
+            st.error(f"🔒 Demasiados intentos fallidos. Espera {lockout_left} segundos.")
+            return False
 
-    if submitted:
-        if _check_credentials(username, password):
-            # Successful login: clear any failed-attempt history
-            st.session_state.login_attempts = []
-            st.session_state.login_locked_until = 0
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            _record_failed_attempt()
-            remaining_attempts = LOGIN_MAX_ATTEMPTS - len(st.session_state.get("login_attempts", []))
-            if _login_lockout_remaining() > 0:
-                st.error(f"🔒 Demasiados intentos. Bloqueado por {LOGIN_LOCKOUT_SECS} segundos.")
+        if submitted:
+            if _check_credentials(username, password):
+                # Successful login: clear any failed-attempt history
+                st.session_state.login_attempts = []
+                st.session_state.login_locked_until = 0
+                st.session_state.authenticated = True
+                st.rerun()
             else:
-                st.error(f"❌ Usuario o contraseña incorrectos ({remaining_attempts} intento(s) restante(s))")
+                _record_failed_attempt()
+                remaining_attempts = LOGIN_MAX_ATTEMPTS - len(st.session_state.get("login_attempts", []))
+                if _login_lockout_remaining() > 0:
+                    st.error(f"🔒 Demasiados intentos. Bloqueado por {LOGIN_LOCKOUT_SECS} segundos.")
+                else:
+                    st.error(f"❌ Usuario o contraseña incorrectos ({remaining_attempts} intento(s) restante(s))")
     return False
 
 
@@ -204,7 +207,7 @@ REFERENCE_BUCKET = "reference-docs"
 _STATE_DEFAULTS = {
     "patient_created": False, "plan_generated": False,
     "current_patient_id": None, "current_plan": None, "current_plan_id": None,
-    "load_existing_patient": False, "show_add_example": False,
+    "load_existing_patient": False,
     "patient_name": "", "patient_age": 30, "patient_gender": "Masculino",
     "patient_weight": 70.0, "patient_height": 170.0, "patient_health_conditions": "",
     "patient_glucose": 0.0, "patient_cholesterol": 0.0, "patient_triglycerides": 0.0, "patient_hemoglobin": 0.0,
@@ -854,94 +857,43 @@ def render_plan_card(plan, patient, prefix="plan"):
             st.rerun()
     with c3:
         if st.button("🗑️ Eliminar", key=f"{prefix}_rm_{plan.id}", type="secondary"):
-            try:
-                with get_db() as s:
-                    obj = s.query(DietPlan).filter_by(id=plan.id).first()
-                    if obj:
-                        s.delete(obj)
+            st.session_state[f"confirm_rm_{plan.id}"] = True
+            st.rerun()
+
+    # Two-step confirm, same pattern as regenerate
+    if st.session_state.get(f"confirm_rm_{plan.id}"):
+        st.warning("¿Eliminar este plan? Esta acción no se puede deshacer.")
+        dc1, dc2 = st.columns(2)
+        with dc1:
+            if st.button("✅ Sí, eliminar", type="primary", key=f"{prefix}_rm_yes_{plan.id}"):
+                st.session_state[f"confirm_rm_{plan.id}"] = False
+                try:
+                    with get_db() as s:
+                        obj = s.query(DietPlan).filter_by(id=plan.id).first()
+                        if obj:
+                            s.delete(obj)
+                    st.rerun()
+                except Exception as e:
+                    _show_error("al eliminar plan", e)
+        with dc2:
+            if st.button("❌ Cancelar", key=f"{prefix}_rm_no_{plan.id}"):
+                st.session_state[f"confirm_rm_{plan.id}"] = False
                 st.rerun()
-            except Exception as e:
-                _show_error("al eliminar plan", e)
 
 
-# ══════════════════════════════════════════════
-# MAIN APPLICATION
-# ══════════════════════════════════════════════
-init_session_state()
-st.title("🥗 Asistente de Nutrición con IA - MVP")
-st.markdown("---")
-
-# ── Sidebar ──
-with st.sidebar:
-    st.header("⚙️ Configuración")
-    ai_provider = st.selectbox("Proveedor de IA", ["OpenAI", "Anthropic"])
-    secret_key_name = "OPENAI_API_KEY" if ai_provider == "OpenAI" else "ANTHROPIC_API_KEY"
-    default_key = st.secrets.get(secret_key_name, "")
-    api_key_input = st.text_input(
-        f"API Key de {ai_provider}" + (" (en secrets)" if default_key else ""),
-        type="password", value="" if default_key else "",
-        placeholder="Dejar vacío si está en secrets" if default_key else f"Ingresa tu API key",
-    )
-    api_key = api_key_input.strip() or default_key
-
-    if api_key:
-        cache_key = f"api_valid_{ai_provider}_{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
-        if cache_key not in st.session_state:
-            with st.spinner("Validando..."):
-                st.session_state[cache_key] = validate_api_key(api_key, ai_provider)
-        is_valid, err_msg = st.session_state[cache_key]
-        if is_valid:
-            st.success(f"✅ API key válida")
-            model_label = OPENAI_MODEL if ai_provider == "OpenAI" else ANTHROPIC_MODEL
-            st.caption(f"🧠 Modelo: `{model_label}`")
-        else:
-            st.error(f"❌ API key inválida")
-            if err_msg:
-                with st.expander("Ver detalle del error"):
-                    st.code(err_msg)
-            api_key = ""
-    else:
-        st.warning("⚠️ Sin API key")
-
-    st.markdown("---")
-    if st.button("🚪 Cerrar Sesión"):
-        st.session_state.clear()
-        st.rerun()
-
-    st.markdown("---")
-    st.subheader("📚 Planes de Ejemplo")
-    if st.button("➕ Agregar Plan de Ejemplo"):
-        st.session_state.show_add_example = True
-    with get_db() as s:
-        st.caption(f"{s.query(ExamplePlan).count()} plan(es) de ejemplo")
-
-    st.markdown("---")
-    st.subheader("📄 Docs de Referencia")
-    ref_docs = load_reference_documents()
-    if ref_docs:
-        st.success(f"✅ {len(ref_docs)} doc(s)")
-        for fname in ref_docs:
-            st.caption(f"  • {fname}")
-    else:
-        st.caption("Agrega PDFs al bucket 'reference-docs' en Supabase.")
-
-# ── Add Example Plan form ──
-if st.session_state.get("show_add_example"):
-    st.markdown("---")
-    st.header("➕ Agregar Plan de Ejemplo")
+# ──────────────────────────────────────────────
+# UI: example plans dialog
+# ──────────────────────────────────────────────
+@st.dialog("📚 Planes de Ejemplo", width="large")
+def example_plans_dialog():
     with st.form("add_example_form"):
         ex_title = st.text_input("Título *", placeholder="ej: Plan para Diabético Tipo 2")
         ex_profile = st.text_area("Perfil del Paciente *", placeholder="ej: Hombre de 55 años, diabético tipo 2", height=100)
         ex_tags = st.text_input("Etiquetas (comas) *", placeholder="ej: diabetes, sobrepeso")
-        st.markdown("**Subir Archivo**")
+        st.markdown("**Subir archivo** o **pegar texto** (el archivo tiene prioridad)")
         uploaded_file = st.file_uploader("Archivo del plan", type=["txt", "md", "docx", "pdf"])
-        st.markdown("**O pegar texto**")
-        ex_content = st.text_area("Contenido del Plan", height=400)
-        c1, c2 = st.columns(2)
-        with c1:
-            submitted = st.form_submit_button("💾 Guardar", type="primary")
-        with c2:
-            cancelled = st.form_submit_button("❌ Cancelar")
+        ex_content = st.text_area("Contenido del Plan", height=200)
+        submitted = st.form_submit_button("💾 Guardar", type="primary", use_container_width=True)
 
         if submitted:
             content = extract_file_content(uploaded_file) or ex_content or ""
@@ -953,20 +905,17 @@ if st.session_state.get("show_add_example"):
                 try:
                     with get_db() as s:
                         s.add(ExamplePlan(title=ex_title, patient_profile=ex_profile, plan_content=content, tags=_parse_csv(ex_tags)))
-                    st.success("✅ Ejemplo guardado!")
-                    st.session_state.show_add_example = False
-                    st.rerun()
+                    st.rerun()  # full rerun closes the dialog
                 except Exception as e:
                     _show_error("al guardar ejemplo", e)
-        if cancelled:
-            st.session_state.show_add_example = False
-            st.rerun()
 
     st.markdown("---")
     st.subheader("📋 Ejemplos Existentes")
     with get_db() as s:
         all_examples = s.query(ExamplePlan).order_by(ExamplePlan.created_at.desc()).all()
         s.expunge_all()
+    if not all_examples:
+        st.info("No hay ejemplos aún.")
     for ex in all_examples:
         with st.expander(f"📄 {ex.title}"):
             st.markdown(f"**Perfil:** {ex.patient_profile}  |  **Etiquetas:** {', '.join(ex.tags or [])}  |  **Creado:** {ex.created_at.strftime('%d/%m/%Y')}")
@@ -977,16 +926,78 @@ if st.session_state.get("show_add_example"):
                         obj = s.query(ExamplePlan).filter_by(id=ex.id).first()
                         if obj:
                             s.delete(obj)
-                    st.rerun()
+                    st.rerun(scope="fragment")  # refresh list without closing the dialog
                 except Exception as e:
                     _show_error("al eliminar ejemplo", e)
-    if not all_examples:
-        st.info("No hay ejemplos aún.")
+
+
+# ══════════════════════════════════════════════
+# MAIN APPLICATION
+# ══════════════════════════════════════════════
+init_session_state()
+st.title("🥗 Asistente de Nutrición con IA")
+
+# ── Sidebar ──
+with st.sidebar:
+    st.header("⚙️ Configuración")
+    # Collapse AI config when a key is already in secrets — testers shouldn't think about API keys
+    _has_secret_key = bool(st.secrets.get("OPENAI_API_KEY", "") or st.secrets.get("ANTHROPIC_API_KEY", ""))
+    with st.expander("🧠 Proveedor de IA", expanded=not _has_secret_key):
+        ai_provider = st.selectbox("Proveedor de IA", ["OpenAI", "Anthropic"])
+        secret_key_name = "OPENAI_API_KEY" if ai_provider == "OpenAI" else "ANTHROPIC_API_KEY"
+        default_key = st.secrets.get(secret_key_name, "")
+        api_key_input = st.text_input(
+            f"API Key de {ai_provider}" + (" (en secrets)" if default_key else ""),
+            type="password", value="" if default_key else "",
+            placeholder="Dejar vacío si está en secrets" if default_key else f"Ingresa tu API key",
+        )
+        api_key = api_key_input.strip() or default_key
+
+    if api_key:
+        cache_key = f"api_valid_{ai_provider}_{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
+        if cache_key not in st.session_state:
+            with st.spinner("Validando..."):
+                st.session_state[cache_key] = validate_api_key(api_key, ai_provider)
+        is_valid, err_msg = st.session_state[cache_key]
+        if is_valid:
+            model_label = OPENAI_MODEL if ai_provider == "OpenAI" else ANTHROPIC_MODEL
+            st.caption(f"✅ {ai_provider} · `{model_label}`")
+        else:
+            st.error(f"❌ API key inválida")
+            if err_msg:
+                with st.expander("Ver detalle del error"):
+                    st.code(err_msg)
+            api_key = ""
+    else:
+        st.warning("⚠️ Sin API key")
+
+    st.markdown("---")
+    st.subheader("📚 Planes de Ejemplo")
+    with get_db() as s:
+        _example_count = s.query(ExamplePlan).count()
+    st.caption(f"{_example_count} plan(es) de ejemplo")
+    if st.button("➕ Administrar Planes de Ejemplo", use_container_width=True):
+        example_plans_dialog()
+
+    st.markdown("---")
+    st.subheader("📄 Docs de Referencia")
+    ref_docs = load_reference_documents()
+    if ref_docs:
+        st.caption(f"✅ {len(ref_docs)} doc(s)")
+        for fname in ref_docs:
+            st.caption(f"  • {fname}")
+    else:
+        st.caption("Agrega PDFs al bucket 'reference-docs' en Supabase.")
+
+    st.markdown("---")
+    if st.button("🚪 Cerrar Sesión", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
 
 # ══════════════════════════════════════════════
 # Patient selector
 # ══════════════════════════════════════════════
-st.header("🔍 Buscar Paciente Existente")
+st.header("👥 Seleccionar Paciente")
 with get_db() as s:
     all_patients = s.query(Patient).order_by(Patient.created_at.desc()).all()
     s.expunge_all()
@@ -1111,14 +1122,11 @@ with tab_datos:
                         except Exception as e:
                             _show_error("al actualizar paciente", e)
 
-    st.markdown("---")
-
 with tab_labs:
     # ══════════════════════════════════════════════
     # Lab history
     # ══════════════════════════════════════════════
     if st.session_state.patient_created and st.session_state.current_patient_id:
-        st.header("🔬 Historial de Laboratorio")
         with get_db() as s:
             all_labs = s.query(LabValue).filter_by(patient_id=st.session_state.current_patient_id).order_by(LabValue.test_date.asc()).all()
             s.expunge_all()
@@ -1161,15 +1169,14 @@ with tab_labs:
             else:
                 st.info("2+ registros necesarios para tendencias.")
         else:
-            st.info("Sin registros de laboratorio aún.")
-
-    st.markdown("---")
+            st.info("Sin registros de laboratorio aún. Puedes capturarlos en la pestaña **📋 Datos del Paciente**.")
+    else:
+        st.info("👥 Selecciona un paciente arriba o crea uno nuevo en la pestaña **📋 Datos del Paciente** para ver su historial de laboratorio.")
 
 with tab_generar:
     # ══════════════════════════════════════════════
     # Generate plan
     # ══════════════════════════════════════════════
-    st.header("2️⃣ Consideraciones Especiales y Generar Plan")
     special_considerations = st.text_area("Consideraciones Especiales", placeholder="Alergias, preferencias, restricciones...", height=100)
 
     # Hero action — bigger, full-width, with model context underneath
@@ -1204,14 +1211,11 @@ with tab_generar:
         except Exception as e:
             _show_error("al generar plan", e)
 
-    st.markdown("---")
-
 with tab_historial:
     # ══════════════════════════════════════════════
     # Past plans
     # ══════════════════════════════════════════════
     if st.session_state.patient_created and st.session_state.current_patient_id:
-        st.header("📚 Planes Anteriores")
         with get_db() as s:
             past_plans = s.query(DietPlan).filter_by(patient_id=st.session_state.current_patient_id).order_by(DietPlan.created_at.desc()).all()
             _hist_patient, _ = _load_patient_and_labs(s, st.session_state.current_patient_id)
@@ -1259,16 +1263,17 @@ with tab_historial:
                         st.caption(_preview_short)
                     render_plan_card(plan, _hist_patient, prefix=f"p{idx}")
         else:
-            st.info("Sin planes guardados.")
-
-    st.markdown("---")
+            st.info("Sin planes guardados. Genera el primero en la pestaña **🤖 Generar Plan**.")
+    else:
+        st.info("👥 Selecciona un paciente arriba o crea uno nuevo en la pestaña **📋 Datos del Paciente** para ver sus planes.")
 
 with tab_generar:
     # ══════════════════════════════════════════════
     # Current plan & modifications
     # ══════════════════════════════════════════════
     if st.session_state.plan_generated and st.session_state.current_plan:
-        st.header("3️⃣ Plan Generado")
+        st.markdown("---")
+        st.header("📄 Plan Generado")
 
         _cur_edit_key = "editing_current"
         _cur_is_editing = st.session_state.get(_cur_edit_key, False)
@@ -1339,6 +1344,8 @@ with tab_generar:
                 else:
                     st.session_state[_pending_key] = True
                     st.rerun()
+            if not modifications:
+                st.caption("✏️ Escribe las modificaciones deseadas para habilitar el botón.")
         else:
             st.warning("¿Sobrescribir el plan actual con uno regenerado? Esta acción no se puede deshacer.")
             cc_confirm, cc_cancel = st.columns(2)
