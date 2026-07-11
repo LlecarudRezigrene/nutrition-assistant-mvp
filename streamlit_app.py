@@ -412,11 +412,17 @@ def load_reference_documents() -> dict[str, str]:
         import PyPDF2
         docs = {}
         for f in client.storage.from_(REFERENCE_BUCKET).list():
-            if not f["name"].lower().endswith(".pdf"):
+            name = f["name"].lower()
+            if not name.endswith((".pdf", ".txt", ".md")):
                 continue
             try:
                 data = client.storage.from_(REFERENCE_BUCKET).download(f["name"])
-                extracted = "\n".join(page.extract_text() or "" for page in PyPDF2.PdfReader(io.BytesIO(data)).pages)
+                if name.endswith(".pdf"):
+                    extracted = "\n".join(page.extract_text() or "" for page in PyPDF2.PdfReader(io.BytesIO(data)).pages)
+                else:
+                    # Distilled .txt/.md summaries are the preferred format:
+                    # clean extraction, no lost tables, no front-matter waste
+                    extracted = data.decode("utf-8", errors="replace")
                 if extracted.strip():
                     docs[f["name"]] = extracted.strip()[:MAX_DOC_CHARS]
             except Exception:
