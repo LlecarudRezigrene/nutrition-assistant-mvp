@@ -606,7 +606,7 @@ Las recomendaciones deben estar alineadas a los padecimientos del paciente y rec
 Utiliza como referencia las guías KDOQI de la Academia Mexicana, las guías KDIGO.
 Formatea el plan de manera clara y fácil de seguir. Usa alimentos comunes en México.
 
-Al final del plan, incluye una sección llamada "REFERENCIAS Y FUENTES:" donde listes las guías, tablas o documentos en los que te basaste para las recomendaciones (por ejemplo: guías KDOQI, KDIGO, documentos de referencia proporcionados, etc.).
+Al final del plan, incluye una sección llamada "REFERENCIAS Y FUENTES:" donde listes ÚNICAMENTE las fuentes que realmente utilizaste para las recomendaciones de ESTE plan. Reglas estrictas: (1) NO inventes referencias ni cites guías o documentos que no usaste; (2) si usaste los documentos de referencia proporcionados arriba, cítalos por su nombre de archivo; (3) si una recomendación proviene de tu conocimiento clínico general y no de un documento proporcionado, decláralo como "conocimiento clínico general" en lugar de atribuirlo a una guía específica; (4) es preferible una lista corta y honesta a una lista larga e impresionante.
 
 INSTRUCCIÓN DE FORMATO: Este plan se entregará como documento al paciente. NO incluyas frases conversacionales como "¿te gustaría que ajuste algo?", "si necesitas más información", "no dudes en preguntar", "espero que te sea útil" o cualquier otra frase que sugiera una conversación. Termina directamente con el contenido del plan y las referencias."""
 
