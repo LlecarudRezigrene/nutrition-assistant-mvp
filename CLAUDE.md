@@ -55,5 +55,5 @@ Defined as SQLAlchemy models; documented in `docs/schema.sql`. Note: that file m
 - Destructive actions use a two-step confirm (pending flag in session state — see regenerate flow and plan delete in `render_plan_card`).
 - Admin flows (example plans) live in `@st.dialog` modals, not inline in the main page. Inside a dialog, `st.rerun()` closes it; `st.rerun(scope="fragment")` refreshes it in place.
 - Every tab renders an empty-state `st.info` when no patient is selected — never a blank tab.
-- Untrusted text going into LLM prompts passes through `_sanitise()` (strips non-printables, truncates). Credentials compare via `hmac.compare_digest`. Keep both habits.
+- Untrusted text going into LLM prompts passes through `_sanitise()` (strips non-printables, truncates). Reference docs and example plans are wrapped in INICIO/FIN delimiters and the prompt instructs the model to ignore instructions inside them (`guard_text` in `_build_diet_prompt`). Credentials compare via `hmac.compare_digest`. Keep all three habits.
 - User-facing datetimes format as `%d/%m/%Y %H:%M`.
