@@ -1,5 +1,5 @@
 -- Current Supabase schema (public tables)
--- Last updated: 2026-07-09
+-- Last updated: 2026-07-13
 
 CREATE TABLE patients (
   id integer,
@@ -10,6 +10,7 @@ CREATE TABLE patients (
   weight double precision,
   bmi double precision,
   health_conditions json,
+  nutrient_targets json,  -- per-patient daily nutrient targets; added via init_db ALTER
   created_at timestamp without time zone,
   updated_at timestamp without time zone
 );

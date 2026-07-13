@@ -322,6 +322,9 @@ _STATE_DEFAULTS = {
     "patient_conditions_selected": [], "patient_ckd_stage": "G3a", "patient_ckd_dialysis": False,
     "patient_glucose": 0.0, "patient_cholesterol": 0.0, "patient_triglycerides": 0.0, "patient_hemoglobin": 0.0,
 }
+# Nutrient-target widget keys (target_<key>) default to 0 = "not set"; included
+# so init_session_state seeds them and reset_form clears them for a new patient.
+_STATE_DEFAULTS.update({f"target_{k}": 0.0 for k, _, _ in NUTRIENT_TARGETS})
 
 
 # ──────────────────────────────────────────────
@@ -344,6 +347,7 @@ class Patient(Base):
     weight = Column(Float, nullable=False)
     height = Column(Float, nullable=False)
     health_conditions = Column(JSON, default=list)
+    nutrient_targets = Column(JSON, default=dict)  # per-patient daily targets (see NUTRIENT_TARGETS)
     bmi = Column(Float)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
@@ -403,6 +407,10 @@ def init_db():
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         Base.metadata.create_all(engine)
+        # Lightweight migration: create_all never ALTERs existing tables, so add
+        # newly-introduced columns idempotently for databases created earlier.
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE patients ADD COLUMN IF NOT EXISTS nutrient_targets json"))
         return sessionmaker(bind=engine)
     except Exception:
         st.error("❌ No se pudo conectar con la base de datos.")
@@ -767,17 +775,10 @@ def validate_api_key(api_key: str, provider: str) -> tuple[bool, str]:
         return False, str(e)[:300]
 
 
-@st.cache_resource
-def _last_targets_store() -> dict:
-    """Cross-session store of the most recently used nutrient targets, so they
-    survive a page reload (session state alone resets on refresh). Shared across
-    sessions like the login throttle — fine for the single-nutritionist app."""
-    return {key: 0.0 for key, _, _ in NUTRIENT_TARGETS}
-
-
 def _collect_targets() -> dict:
-    """Read the nutritionist's optional nutrient targets from session state."""
-    return {key: st.session_state.get(f"target_{key}", 0.0) for key, _, _ in NUTRIENT_TARGETS}
+    """Read the nutritionist's nutrient targets from session state (only the
+    non-zero ones — a 0 means 'not set', so it isn't stored)."""
+    return {key: v for key, _, _ in NUTRIENT_TARGETS if (v := st.session_state.get(f"target_{key}", 0.0))}
 
 
 def generate_diet_plan(patient, lab_values, special_considerations, api_key, provider, targets=None):
@@ -794,11 +795,6 @@ def init_session_state():
     for k, v in _STATE_DEFAULTS.items():
         if k not in st.session_state:
             st.session_state[k] = v
-    # Seed nutrient targets from the cross-session store on a fresh session
-    # (after a page reload), so the last-used values reappear.
-    last = _last_targets_store()
-    for key, _, _ in NUTRIENT_TARGETS:
-        st.session_state.setdefault(f"target_{key}", last.get(key, 0.0))
 
 
 def reset_form():
@@ -808,6 +804,10 @@ def reset_form():
 
 def load_patient_into_state(patient, lab_values):
     _sel, _stage, _dial, _other = _decompose_conditions(patient.health_conditions)
+    # Seed the target inputs from this patient's saved targets (0 = not set)
+    _saved_targets = patient.nutrient_targets or {}
+    for _k, _, _ in NUTRIENT_TARGETS:
+        st.session_state[f"target_{_k}"] = float(_saved_targets.get(_k, 0.0))
     st.session_state.update(
         patient_created=True, current_patient_id=patient.id, load_existing_patient=True,
         patient_name=patient.name, patient_age=patient.age,
@@ -1372,7 +1372,7 @@ with tab_datos:
                     else:
                         try:
                             with get_db() as s:
-                                p = Patient(name=name, age=int(age), gender=GENDER_TO_DB.get(gender, "other"), weight=float(weight), height=float(height), health_conditions=conditions_list, bmi=calculate_bmi(weight, height))
+                                p = Patient(name=name, age=int(age), gender=GENDER_TO_DB.get(gender, "other"), weight=float(weight), height=float(height), health_conditions=conditions_list, nutrient_targets=_collect_targets(), bmi=calculate_bmi(weight, height))
                                 s.add(p)
                                 s.flush()
                                 if has_labs:
@@ -1397,6 +1397,7 @@ with tab_datos:
                                     p.name, p.age, p.gender = name, int(age), GENDER_TO_DB.get(gender, "other")
                                     p.weight, p.height = float(weight), float(height)
                                     p.health_conditions, p.bmi, p.updated_at = conditions_list, calculate_bmi(weight, height), _utcnow()
+                                    p.nutrient_targets = _collect_targets()
                                     if has_labs:
                                         s.add(LabValue(patient_id=p.id, **lab_kw))
                                     # Condition fields are widget-keyed (patient_conditions_selected,
@@ -1471,8 +1472,6 @@ with tab_generar:
         for _i, (_tkey, _tlabel, _tunit) in enumerate(NUTRIENT_TARGETS):
             with _tcols[_i % 2]:
                 st.number_input(f"{_tlabel} ({_tunit})", min_value=0.0, step=1.0, key=f"target_{_tkey}")
-    # Remember the current targets across page reloads (see _last_targets_store)
-    _last_targets_store().update(_collect_targets())
 
     # Hero action — bigger, full-width, with model context underneath
     _can_generate = st.session_state.patient_created and bool(api_key)
@@ -1496,7 +1495,9 @@ with tab_generar:
             with st.spinner(f"Generando plan con {ai_provider}... Esto puede tomar 30-60 segundos."):
                 with get_db() as s:
                     patient, labs = _load_patient_and_labs(s, st.session_state.current_patient_id)
-                    plan_text = generate_diet_plan(patient, labs, special_considerations, api_key, ai_provider, _collect_targets())
+                    _targets = _collect_targets()
+                    patient.nutrient_targets = _targets  # remember this patient's targets
+                    plan_text = generate_diet_plan(patient, labs, special_considerations, api_key, ai_provider, _targets)
                     plan = DietPlan(patient_id=patient.id, plan_details=plan_text, special_considerations=special_considerations, status="active")
                     s.add(plan)
                     s.flush()
@@ -1650,7 +1651,9 @@ with tab_generar:
                             with get_db() as s:
                                 patient, labs = _load_patient_and_labs(s, st.session_state.current_patient_id)
                                 mod = f"{special_considerations}\n\nModificaciones: {modifications}"
-                                new_text = generate_diet_plan(patient, labs, mod, api_key, ai_provider, _collect_targets())
+                                _targets = _collect_targets()
+                                patient.nutrient_targets = _targets  # remember this patient's targets
+                                new_text = generate_diet_plan(patient, labs, mod, api_key, ai_provider, _targets)
                                 existing = s.query(DietPlan).filter_by(id=st.session_state.current_plan_id).first()
                                 if existing:
                                     existing.plan_details, existing.special_considerations, existing.updated_at = new_text, mod, _utcnow()
