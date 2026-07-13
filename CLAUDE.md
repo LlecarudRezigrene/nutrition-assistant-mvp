@@ -33,6 +33,7 @@ Quirk: `with tab_generar:` is entered **twice** (generation UI, then later the c
 Defined as SQLAlchemy models; documented in `docs/schema.sql`. Note: that file may lag the live DB — verify constraints/types against Supabase before relying on it (known open question: live `created_at`/`updated_at` may be `timestamp without time zone` while models say `timezone=True`).
 
 - **patients**: id PK, name, age, gender (`male`/`female`/`other` — UI maps via `GENDER_TO_DB`), weight, height, bmi, health_conditions (json list), created_at, updated_at
+  - `health_conditions` is entered via a structured picker (`CONDITION_OPTIONS` multiselect + CKD stage/dialysis follow-up + free-text "other"), composed into the flat list by `_compose_conditions` and parsed back by `_decompose_conditions`. No schema change — CKD detail is stored as a string like `"Enfermedad renal crónica etapa G4, sin diálisis"`. Legacy free-text conditions decompose into the "other" field.
 - **lab_values**: id PK, patient_id FK→patients (CASCADE), test_date (varchar, ISO `YYYY-MM-DD` — sorts as string), glucose, cholesterol, triglycerides, hemoglobin, created_at
 - **diet_plans**: id PK, patient_id FK→patients (CASCADE), plan_details (text, markdown), special_considerations, status (default `active`), created_at, updated_at
 - **example_plans**: id PK, title, patient_profile, plan_content, tags (json list), created_at

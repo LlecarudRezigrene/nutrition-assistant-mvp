@@ -3,6 +3,7 @@ import io
 import hashlib
 import hmac
 import html
+import re
 from contextlib import contextmanager
 from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, DateTime, Text, ForeignKey, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
@@ -176,6 +177,20 @@ GENDER_TO_DB = {"Masculino": "male", "Femenino": "female", "Otro": "other"}
 GENDER_FROM_DB = {v: k for k, v in GENDER_TO_DB.items()}
 GENDER_OPTIONS = list(GENDER_TO_DB.keys())
 
+# Structured health conditions. Kept as strings in the existing health_conditions
+# JSON list (no schema change); the picker composes/decomposes them.
+CKD_CONDITION = "Enfermedad renal crónica"
+CONDITION_OPTIONS = [
+    "Diabetes tipo 2",
+    CKD_CONDITION,
+    "Sobrepeso u obesidad",
+    "Hipertensión arterial",
+    "Dislipidemia",
+]
+# CKD stage drives the protein target (0.55-0.60 g/kg predialysis vs 1.0-1.2 on
+# dialysis), so it's captured explicitly when ERC is selected.
+CKD_STAGES = ["G1", "G2", "G3a", "G3b", "G4", "G5"]
+
 AGE_KEYWORDS = [(18, ["adolescente", "joven"]), (30, ["adulto joven"]), (60, ["adulto"]), (999, ["adulto mayor", "tercera edad"])]
 BMI_KEYWORDS = [(18.5, "bajo peso"), (25, "peso normal"), (30, "sobrepeso"), (999, "obesidad")]
 
@@ -292,6 +307,7 @@ _STATE_DEFAULTS = {
     "load_existing_patient": False,
     "patient_name": "", "patient_age": 30, "patient_gender": "Masculino",
     "patient_weight": 70.0, "patient_height": 170.0, "patient_health_conditions": "",
+    "patient_conditions_selected": [], "patient_ckd_stage": "G3a", "patient_ckd_dialysis": False,
     "patient_glucose": 0.0, "patient_cholesterol": 0.0, "patient_triglycerides": 0.0, "patient_hemoglobin": 0.0,
 }
 
@@ -457,6 +473,40 @@ def _positive_or_none(val: float):
 
 def _parse_csv(raw: str) -> list[str]:
     return [c.strip() for c in raw.split(",") if c.strip()] if raw else []
+
+
+def _compose_conditions(selected: list[str], ckd_stage: str, ckd_dialysis: bool, other_text: str) -> list[str]:
+    """Combine structured condition picks + CKD detail + free-text extras into the
+    flat health_conditions list stored on the patient (no schema change)."""
+    out = []
+    for c in selected:
+        if c == CKD_CONDITION:
+            detail = f"{CKD_CONDITION} etapa {ckd_stage}" if ckd_stage else CKD_CONDITION
+            detail += ", en diálisis" if ckd_dialysis else ", sin diálisis"
+            out.append(detail)
+        else:
+            out.append(c)
+    out.extend(_parse_csv(other_text))
+    return out
+
+
+def _decompose_conditions(conditions) -> tuple[list[str], str, bool, str]:
+    """Inverse of _compose_conditions: parse a stored list back into
+    (selected categories, ckd_stage, ckd_dialysis, free-text other)."""
+    selected, ckd_stage, ckd_dialysis, others = [], "G3a", False, []
+    for raw in (conditions or []):
+        item = raw.strip()
+        if item.startswith(CKD_CONDITION):
+            selected.append(CKD_CONDITION)
+            ckd_dialysis = "en diálisis" in item
+            m = re.search(r"G3a|G3b|G[1-5]", item)
+            if m:
+                ckd_stage = m.group(0)
+        elif item in CONDITION_OPTIONS:
+            selected.append(item)
+        else:
+            others.append(item)
+    return selected, ckd_stage, ckd_dialysis, ", ".join(others)
 
 
 def _show_error(context: str, error: Exception):
@@ -697,12 +747,14 @@ def reset_form():
 
 
 def load_patient_into_state(patient, lab_values):
+    _sel, _stage, _dial, _other = _decompose_conditions(patient.health_conditions)
     st.session_state.update(
         patient_created=True, current_patient_id=patient.id, load_existing_patient=True,
         patient_name=patient.name, patient_age=patient.age,
         patient_gender=GENDER_FROM_DB.get(patient.gender, "Masculino"),
         patient_weight=patient.weight, patient_height=patient.height,
-        patient_health_conditions=", ".join(patient.health_conditions) if patient.health_conditions else "",
+        patient_conditions_selected=_sel, patient_ckd_stage=_stage,
+        patient_ckd_dialysis=_dial, patient_health_conditions=_other,
         patient_glucose=(lab_values.glucose or 0.0) if lab_values else 0.0,
         patient_cholesterol=(lab_values.cholesterol or 0.0) if lab_values else 0.0,
         patient_triglycerides=(lab_values.triglycerides or 0.0) if lab_values else 0.0,
@@ -1208,7 +1260,28 @@ with tab_datos:
             if weight and height:
                 st.metric("IMC", calculate_bmi(weight, height))
 
-        health_conditions = st.text_input("Condiciones de Salud (comas)", value=_gs("patient_health_conditions"), placeholder="ej: diabetes, hipertensión")
+        st.markdown("**Condiciones de salud**")
+        conditions_selected = st.multiselect(
+            "Selecciona las condiciones principales",
+            CONDITION_OPTIONS,
+            default=[c for c in _gs("patient_conditions_selected") if c in CONDITION_OPTIONS],
+            help="Estas condiciones determinan qué guías clínicas se aplican al generar el plan.",
+        )
+        ckd_stage, ckd_dialysis = _gs("patient_ckd_stage"), _gs("patient_ckd_dialysis")
+        if CKD_CONDITION in conditions_selected:
+            # CKD stage / dialysis status drives the protein target — capture it explicitly.
+            kc1, kc2 = st.columns(2)
+            with kc1:
+                _stg = _gs("patient_ckd_stage")
+                ckd_stage = st.selectbox("Etapa de ERC (TFG)", CKD_STAGES, index=CKD_STAGES.index(_stg) if _stg in CKD_STAGES else 2)
+            with kc2:
+                ckd_dialysis = st.checkbox("En diálisis", value=bool(_gs("patient_ckd_dialysis")))
+        other_conditions = st.text_input(
+            "Otras condiciones (separadas por comas)",
+            value=_gs("patient_health_conditions"),
+            placeholder="ej: gastritis, alergia al gluten",
+        )
+        conditions_list = _compose_conditions(conditions_selected, ckd_stage, ckd_dialysis, other_conditions)
 
         st.subheader("Resultados de Laboratorio")
         c3, c4 = st.columns(2)
@@ -1231,7 +1304,7 @@ with tab_datos:
                     else:
                         try:
                             with get_db() as s:
-                                p = Patient(name=name, age=int(age), gender=GENDER_TO_DB.get(gender, "other"), weight=float(weight), height=float(height), health_conditions=_parse_csv(health_conditions), bmi=calculate_bmi(weight, height))
+                                p = Patient(name=name, age=int(age), gender=GENDER_TO_DB.get(gender, "other"), weight=float(weight), height=float(height), health_conditions=conditions_list, bmi=calculate_bmi(weight, height))
                                 s.add(p)
                                 s.flush()
                                 if has_labs:
@@ -1255,10 +1328,10 @@ with tab_datos:
                                 else:
                                     p.name, p.age, p.gender = name, int(age), GENDER_TO_DB.get(gender, "other")
                                     p.weight, p.height = float(weight), float(height)
-                                    p.health_conditions, p.bmi, p.updated_at = _parse_csv(health_conditions), calculate_bmi(weight, height), _utcnow()
+                                    p.health_conditions, p.bmi, p.updated_at = conditions_list, calculate_bmi(weight, height), _utcnow()
                                     if has_labs:
                                         s.add(LabValue(patient_id=p.id, **lab_kw))
-                                    st.session_state.update(patient_name=name, patient_age=age, patient_gender=gender, patient_weight=weight, patient_height=height, patient_health_conditions=health_conditions, patient_glucose=glucose, patient_cholesterol=cholesterol, patient_triglycerides=triglycerides, patient_hemoglobin=hemoglobin)
+                                    st.session_state.update(patient_name=name, patient_age=age, patient_gender=gender, patient_weight=weight, patient_height=height, patient_conditions_selected=conditions_selected, patient_ckd_stage=ckd_stage, patient_ckd_dialysis=ckd_dialysis, patient_health_conditions=other_conditions, patient_glucose=glucose, patient_cholesterol=cholesterol, patient_triglycerides=triglycerides, patient_hemoglobin=hemoglobin)
                                     st.success(f"✅ Actualizado (ID: {p.id})")
                         except Exception as e:
                             _show_error("al actualizar paciente", e)
