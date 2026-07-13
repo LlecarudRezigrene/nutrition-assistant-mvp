@@ -422,33 +422,42 @@ def get_supabase_client():
 
 
 @st.cache_data(ttl=3600)
-def load_reference_documents() -> dict[str, str]:
+def load_reference_documents() -> tuple[dict[str, str], list[str]]:
+    """Returns (docs, issues). `issues` lists bucket files that could NOT be used
+    (unsupported format, no extractable text, read error) so uploads never fail
+    silently — the sidebar surfaces them to the nutritionist."""
     client = get_supabase_client()
     if client is None:
-        return {}
+        return {}, []
     try:
         import PyPDF2
-        docs = {}
+        docs, issues = {}, []
         for f in client.storage.from_(REFERENCE_BUCKET).list():
-            name = f["name"].lower()
-            if not name.endswith((".pdf", ".txt", ".md")):
+            name = f["name"]
+            low = name.lower()
+            if name.startswith("."):
+                continue  # storage placeholder
+            if not low.endswith((".pdf", ".txt", ".md")):
+                issues.append(f"{name}: formato no soportado (usa PDF, TXT o MD)")
                 continue
             try:
-                data = client.storage.from_(REFERENCE_BUCKET).download(f["name"])
-                if name.endswith(".pdf"):
+                data = client.storage.from_(REFERENCE_BUCKET).download(name)
+                if low.endswith(".pdf"):
                     extracted = "\n".join(page.extract_text() or "" for page in PyPDF2.PdfReader(io.BytesIO(data)).pages)
                 else:
-                    # Distilled .txt/.md summaries are the preferred format:
-                    # clean extraction, no lost tables, no front-matter waste
+                    # Plain .txt/.md extract cleanly — no lost tables, no front-matter waste
                     extracted = data.decode("utf-8", errors="replace")
-                if extracted.strip():
-                    docs[f["name"]] = extracted.strip()[:MAX_DOC_CHARS]
+                extracted = extracted.strip()
+                if not extracted:
+                    # A PDF with no text layer (e.g. a scanned image) yields nothing
+                    issues.append(f"{name}: sin texto extraíble (¿PDF escaneado como imagen?)")
+                    continue
+                docs[name] = extracted[:MAX_DOC_CHARS]
             except Exception:
-                st.warning(f"⚠️ No se pudo leer '{f['name']}'")
-        return docs
+                issues.append(f"{name}: no se pudo leer")
+        return docs, issues
     except Exception:
-        st.warning("⚠️ Error al cargar documentos de referencia.")
-        return {}
+        return {}, ["No se pudo acceder al bucket de documentos de referencia."]
 
 
 # ──────────────────────────────────────────────
@@ -596,7 +605,7 @@ def _build_reference_system() -> tuple[str, bool]:
     """Reference context (role + guideline documents). Identical across all
     patients, so it is sent as a *cached* system prompt — repeated generations
     only pay full price for the patient-specific part. Returns (text, has_docs)."""
-    ref_docs = load_reference_documents()
+    ref_docs, _ = load_reference_documents()
     parts = [
         "Eres un nutriólogo experto mexicano que crea planes de alimentación "
         "personalizados y clínicamente fundamentados para pacientes en México."
@@ -1175,13 +1184,17 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("📄 Docs de Referencia")
-    ref_docs = load_reference_documents()
+    ref_docs, ref_issues = load_reference_documents()
     if ref_docs:
         st.caption(f"✅ {len(ref_docs)} doc(s)")
-        for fname in ref_docs:
-            st.caption(f"  • {fname}")
+        for fname, text in ref_docs.items():
+            # Show approx size so a partially-extracted doc stands out
+            st.caption(f"  • {fname} · {len(text) // 1000}k")
     else:
         st.caption("Agrega PDFs al bucket 'reference-docs' en Supabase.")
+    if ref_issues:
+        # Uploads that could not be used — surfaced instead of failing silently
+        st.warning("⚠️ Documentos no utilizables:\n" + "\n".join(f"- {i}" for i in ref_issues))
 
     st.markdown("---")
     if st.button("🚪 Cerrar Sesión", use_container_width=True):
@@ -1261,24 +1274,28 @@ with tab_datos:
                 st.metric("IMC", calculate_bmi(weight, height))
 
         st.markdown("**Condiciones de salud**")
+        # Keyed widgets: state persists in session_state across reruns (incl. the
+        # save-button rerun). load_patient_into_state / reset_form set these keys
+        # before the form renders, so they also drive the initial value — that's
+        # why no default/value/index is passed here (it would conflict).
         conditions_selected = st.multiselect(
             "Selecciona las condiciones principales",
             CONDITION_OPTIONS,
-            default=[c for c in _gs("patient_conditions_selected") if c in CONDITION_OPTIONS],
+            key="patient_conditions_selected",
             help="Estas condiciones determinan qué guías clínicas se aplican al generar el plan.",
         )
-        ckd_stage, ckd_dialysis = _gs("patient_ckd_stage"), _gs("patient_ckd_dialysis")
+        ckd_stage = st.session_state.get("patient_ckd_stage", "G3a")
+        ckd_dialysis = bool(st.session_state.get("patient_ckd_dialysis", False))
         if CKD_CONDITION in conditions_selected:
             # CKD stage / dialysis status drives the protein target — capture it explicitly.
             kc1, kc2 = st.columns(2)
             with kc1:
-                _stg = _gs("patient_ckd_stage")
-                ckd_stage = st.selectbox("Etapa de ERC (TFG)", CKD_STAGES, index=CKD_STAGES.index(_stg) if _stg in CKD_STAGES else 2)
+                ckd_stage = st.selectbox("Etapa de ERC (TFG)", CKD_STAGES, key="patient_ckd_stage")
             with kc2:
-                ckd_dialysis = st.checkbox("En diálisis", value=bool(_gs("patient_ckd_dialysis")))
+                ckd_dialysis = st.checkbox("En diálisis", key="patient_ckd_dialysis")
         other_conditions = st.text_input(
             "Otras condiciones (separadas por comas)",
-            value=_gs("patient_health_conditions"),
+            key="patient_health_conditions",
             placeholder="ej: gastritis, alergia al gluten",
         )
         conditions_list = _compose_conditions(conditions_selected, ckd_stage, ckd_dialysis, other_conditions)
@@ -1331,7 +1348,10 @@ with tab_datos:
                                     p.health_conditions, p.bmi, p.updated_at = conditions_list, calculate_bmi(weight, height), _utcnow()
                                     if has_labs:
                                         s.add(LabValue(patient_id=p.id, **lab_kw))
-                                    st.session_state.update(patient_name=name, patient_age=age, patient_gender=gender, patient_weight=weight, patient_height=height, patient_conditions_selected=conditions_selected, patient_ckd_stage=ckd_stage, patient_ckd_dialysis=ckd_dialysis, patient_health_conditions=other_conditions, patient_glucose=glucose, patient_cholesterol=cholesterol, patient_triglycerides=triglycerides, patient_hemoglobin=hemoglobin)
+                                    # Condition fields are widget-keyed (patient_conditions_selected,
+                                    # patient_ckd_stage, patient_ckd_dialysis, patient_health_conditions),
+                                    # so they persist themselves — updating them here would error.
+                                    st.session_state.update(patient_name=name, patient_age=age, patient_gender=gender, patient_weight=weight, patient_height=height, patient_glucose=glucose, patient_cholesterol=cholesterol, patient_triglycerides=triglycerides, patient_hemoglobin=hemoglobin)
                                     st.success(f"✅ Actualizado (ID: {p.id})")
                         except Exception as e:
                             _show_error("al actualizar paciente", e)
