@@ -767,6 +767,14 @@ def validate_api_key(api_key: str, provider: str) -> tuple[bool, str]:
         return False, str(e)[:300]
 
 
+@st.cache_resource
+def _last_targets_store() -> dict:
+    """Cross-session store of the most recently used nutrient targets, so they
+    survive a page reload (session state alone resets on refresh). Shared across
+    sessions like the login throttle — fine for the single-nutritionist app."""
+    return {key: 0.0 for key, _, _ in NUTRIENT_TARGETS}
+
+
 def _collect_targets() -> dict:
     """Read the nutritionist's optional nutrient targets from session state."""
     return {key: st.session_state.get(f"target_{key}", 0.0) for key, _, _ in NUTRIENT_TARGETS}
@@ -786,6 +794,11 @@ def init_session_state():
     for k, v in _STATE_DEFAULTS.items():
         if k not in st.session_state:
             st.session_state[k] = v
+    # Seed nutrient targets from the cross-session store on a fresh session
+    # (after a page reload), so the last-used values reappear.
+    last = _last_targets_store()
+    for key, _, _ in NUTRIENT_TARGETS:
+        st.session_state.setdefault(f"target_{key}", last.get(key, 0.0))
 
 
 def reset_form():
@@ -1458,6 +1471,8 @@ with tab_generar:
         for _i, (_tkey, _tlabel, _tunit) in enumerate(NUTRIENT_TARGETS):
             with _tcols[_i % 2]:
                 st.number_input(f"{_tlabel} ({_tunit})", min_value=0.0, step=1.0, key=f"target_{_tkey}")
+    # Remember the current targets across page reloads (see _last_targets_store)
+    _last_targets_store().update(_collect_targets())
 
     # Hero action — bigger, full-width, with model context underneath
     _can_generate = st.session_state.patient_created and bool(api_key)
