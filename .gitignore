@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 .env
 *.db
+
+# Source guideline material — large PDFs and raw extracts.
+# The distilled summaries under guides/distilled/ ARE tracked.
+guides/*.pdf
+guides/*.txt
