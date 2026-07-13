@@ -12,6 +12,12 @@ es similar al de otros alimentos de su grupo, por lo que se pueden intercambiar.
 Calcular sobre peso neto o alimento cocido. Úsese esta tabla para expresar las
 raciones del plan en equivalentes y medidas caseras.
 
+NATURALEZA DE ESTE DOCUMENTO: la tabla de aporte nutrimental por grupo es una
+transcripción **completa y textual** de la fuente. Las listas de tamaño de porción por
+alimento son una **selección representativa transcrita textualmente** (las listas
+completas de la Guía de Alimentos son extensas); si se requiere un alimento no listado,
+usar el aporte promedio del grupo correspondiente.
+
 Medidas caseras: 1 taza = 240 ml (¼ L); 1 cucharada (cda) = 15 ml = 3 cucharaditas;
 1 cucharadita (cdta) = 5 ml; 30–40 g ≈ tamaño de una tarjeta.
 

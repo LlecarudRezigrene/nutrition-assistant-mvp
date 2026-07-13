@@ -1,49 +1,49 @@
-# Referencia nutricional — Diabetes Mellitus tipo 2 (GPC IMSS)
+# Referencia nutricional — Diabetes Mellitus tipo 2 (GPC IMSS) — TEXTUAL
 
 Fuente: GPC-IMSS-657-21, Diagnóstico y Tratamiento de la Diabetes Mellitus tipo 2.
-CENETEC/IMSS, 2021. La guía enfatiza a la **persona adulta mayor con DM2**, pero sus
-principios nutricionales aplican de forma general. Nivel de evidencia entre paréntesis
-(A/B = ADA; D = consenso/NICE).
+CENETEC/IMSS, 2021. La guía se enfoca en la **persona adulta mayor con DM2**; sus
+principios nutricionales aplican de forma general.
 
-Documento de consulta para pacientes con diabetes tipo 2. Combinar con la tabla de
-porciones del SMAE para construir el menú.
+NATURALEZA DE ESTE DOCUMENTO: transcripción textual de las recomendaciones nutricionales
+de la guía (texto en español), con la fuente que la guía atribuye a cada una.
 
-## Criterios diagnósticos y de tamizaje (referencia clínica)
+## Recomendaciones nutricionales (texto textual)
 
-- Diagnóstico de DM2 (uno, confirmado): glucosa en ayuno ≥ 126 mg/dL; HbA1c ≥ 6.5 %;
-  o síntomas de hiperglucemia con glucemia ≥ 200 mg/dL.
-- Prediabetes: glucosa en ayuno alterada 110–125 mg/dL, o HbA1c 5.7–6.4 %.
-- En adultos mayores la HbA1c puede ser menos confiable (anemia, vida útil de los
-  eritrocitos); interpretar con precaución.
+> "Se recomienda realizar una intervención nutricional individualizada en personas adultas
+> mayores con DM2 y obesidad, sarcopenia, fragilidad, trastorno neurocognoscitivo mayor o
+> demencia." (D, NICE) [Evert A, 2014]
 
-## Meta glucémica individualizada
+> "Se debe evitar dietas restrictivas en pacientes con riesgo o con malnutrición, hay que
+> fomentar la ingesta adecuada de calorías, buena hidratación, ingesta de proteínas y si
+> es necesario, suplementos nutricionales." (D, NICE) [Munshi M, 2018]
 
-- La meta de HbA1c **no es única**: se individualiza según esperanza de vida,
-  comorbilidades, estado cognitivo, capacidad funcional y riesgo de hipoglucemia.
-- Pacientes sanos y con buena expectativa de vida: control más estricto.
-- Pacientes frágiles, con múltiples comorbilidades o deterioro cognitivo: metas más
-  laxas, **priorizando evitar la hipoglucemia** sobre un control estricto.
+> "Siempre se debe de recomendar una nutrición óptima con una ingesta adecuada de proteínas
+> en las personas adultas mayores con diabetes." (B, ADA) [ADA, 2020]
 
-## Principios de la intervención nutricional
+## Metas de control — individualización (texto textual)
 
-- Realizar una **intervención nutricional individualizada** (no una dieta única),
-  especialmente ante obesidad, sarcopenia, fragilidad o deterioro cognitivo (D).
-- Asegurar **ingesta adecuada de proteína de alto valor biológico** para preservar
-  masa muscular, sobre todo en adultos mayores (B, ADA).
-- **Evitar dietas restrictivas en pacientes con riesgo o presencia de malnutrición**;
-  fomentar aporte calórico suficiente, buena hidratación y, si es necesario,
-  suplementos nutricionales (D).
-- Preferir hidratos de carbono complejos y ricos en fibra; distribuir los carbohidratos
-  a lo largo del día para suavizar las excursiones glucémicas y reducir el riesgo de
-  hipoglucemia.
-- Limitar azúcares simples, jugos y bebidas azucaradas.
+> El control debe "ser más estricto cuando el paciente tiene múltiples comorbilidades ...
+> cuestión que se debe valorar en personas adultas mayores debido a la susceptibilidad
+> potencial para" la hipoglucemia.
 
-## Estilo de vida
+> Las metas "han de ser individualizadas de acuerdo con las comorbilidades, el estado
+> cognoscitivo, la capacidad funcional, la red de apoyo y las" preferencias del paciente.
 
-- Acompañar el plan de alimentación con actividad física adaptada a la capacidad
-  funcional del paciente.
-- Considerar el componente psicoafectivo: la depresión es más frecuente en personas
-  con diabetes y afecta el apego al tratamiento nutricional.
+Interpretación de aplicación (no textual): en pacientes sanos con buena expectativa de vida,
+control glucémico más estricto; en pacientes frágiles o con comorbilidad, metas más laxas
+priorizando evitar la hipoglucemia.
 
-Nota: para pacientes con DM2 **y** enfermedad renal crónica, priorizar además los
+## Criterios diagnósticos (transcripción textual de los cuadros)
+
+> Diagnóstico de DM2: "glucemia > 200 mg/dL" con síntomas de hiperglucemia; o
+> "hemoglobina glucosilada (HbA1c) ≥ a 6.5%"; o glucosa en ayuno ≥ 126 mg/dL (confirmado).
+
+> Prediabetes: "Glucosa en ayuno alterada entre 110-125 mg/dL"; "Determinación de HbA1c
+> con resultado entre 6.0-6.4%" (también se cita el rango 5.7%–6.4%).
+
+> "Se debe considerar que, en el adulto mayor, la prueba de HbA1c" puede ser menos confiable
+> por las comorbilidades "que pueden afectar la vida útil de los glóbulos rojos en la
+> circulación."
+
+Nota de aplicación (no textual): para pacientes con DM2 **y** ERC, priorizar además los
 límites de proteína, sodio, potasio y fósforo de las referencias renales (KDOQI/KDIGO/IMSS-ERC).

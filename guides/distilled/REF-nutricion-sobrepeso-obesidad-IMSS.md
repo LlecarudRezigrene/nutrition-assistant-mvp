@@ -1,55 +1,55 @@
-# Referencia nutricional — Sobrepeso y obesidad (GPC IMSS)
+# Referencia nutricional — Sobrepeso y obesidad (GPC IMSS) — TEXTUAL
 
-Fuente: GPC-IMSS-046-08, Diagnóstico, Tratamiento y Prevención del Sobrepeso y la
-Obesidad Exógena en el Adulto. México: Secretaría de Salud / CENETEC; 2008.
-Nivel de evidencia/recomendación entre paréntesis (A = más fuerte).
+Fuente: GPC-IMSS-046-08, Diagnóstico, Tratamiento y Prevención de Sobrepeso y Obesidad
+en el Adulto. México: Secretaría de Salud / CENETEC; 2008.
 
-Documento de consulta para pacientes adultos con sobrepeso u obesidad sin otra
-patología que exija restricciones específicas. Combinar siempre con la tabla de
-porciones del SMAE para construir el menú.
+NATURALEZA DE ESTE DOCUMENTO: transcripción textual de las recomendaciones de la guía
+(texto en español). Entre corchetes, las citas van seguidas de la fuente que la guía
+atribuye a cada evidencia/recomendación (A = recomendación más fuerte).
 
-## Clasificación por IMC (kg/m²)
+## Distribución de la dieta (texto textual)
 
-- Peso normal: 18.5–24.9 · Sobrepeso: 25–29.9 · Obesidad I: 30–34.9 ·
-  Obesidad II: 35–39.9 · Obesidad III (mórbida): ≥ 40.
-- Evaluar también circunferencia abdominal como indicador de riesgo cardiometabólico
-  y para dar seguimiento a la reducción de grasa.
+> "La distribución de la dieta debe ser: 55% de hidratos de carbono complejo a partir de
+> cereales, frutas y vegetales, 15% de proteínas (leguminosas y productos de origen
+> animal) y 30% de lípidos" (A) [Institute for Clinical Systems Improvement, 2006].
 
-## Distribución de macronutrientes (dieta equilibrada)
+> "El punto estratégico para la reducción de peso es un equilibrio calórico: el gasto
+> calórico debe exceder la ingesta calórica" [NICE 2006].
 
-- **Hidratos de carbono: 55 %** de la energía total, preferentemente complejos
-  (cereales integrales, frutas y verduras) (A).
-- **Proteínas: 15 %** (leguminosas y productos de origen animal) (A).
-- **Lípidos: 30 %**.
-- Principio central: para reducir peso, el gasto calórico debe exceder la ingesta
-  (balance calórico negativo).
+## Metas de energía para reducción de peso (texto textual)
 
-## Metas de energía según objetivo
+> Dietas de bajo aporte calórico "(1000-1200 Kcal para mujeres y 1200-1500 Kcal hombres)
+> para la reducción de peso de pacientes con obesidad".
 
-- **Dieta hipocalórica equilibrada (primera línea):** ~**1000–1200 kcal/día en mujeres**
-  y **1200–1500 kcal/día en hombres** para la reducción de peso en obesidad.
-- Una restricción moderada (déficit de ~500 kcal/día respecto al requerimiento)
-  produce pérdida de peso gradual y sostenible.
-- **Dietas de muy bajo aporte calórico (< 800 kcal/día): solo bajo estricta vigilancia
-  médica**, en obesidad moderada-severa y por tiempo limitado (no usar de forma rutinaria).
-- Dietas bajas en carbohidratos (< 20 % de calorías): pueden emplearse en casos
-  seleccionados, no como recomendación general.
+> Dietas de muy bajo aporte de energía "(200 – 800 Kcal) para la reducción de peso de
+> pacientes con obesidad moderada-severa, sólo bajo estricta vigilancia médica y a"
+> (tiempo limitado). Nota: reservadas a vigilancia médica estricta, no de uso rutinario.
 
-## Meta de pérdida de peso
+> "Las dietas bajas en carbohidratos (< 20% del total de calorías) pueden ser empleadas
+> para la" reducción de peso (en casos seleccionados).
 
-- **Meta realista: ~5–10 % del peso corporal en ~6 meses.** Esta reducción modesta ya
-  disminuye la morbilidad asociada a la obesidad (C).
-- Establecer metas realistas y fomentar cambios permanentes en el estilo de vida
-  (no dietas extremas de corto plazo).
+## Meta de pérdida de peso (texto textual)
 
-## Actividad física
+> "Una pérdida de peso modesta (por ejemplo, 10% de peso corporal en un lapso de 6 meses),
+> es una meta realista que contribuye a una reducción en la morbilidad de la obesidad" (C)
+> [Singapore Ministry of Health, 2004].
 
-- Complementar la dieta con actividad física: al menos **30 minutos de ejercicio
-  moderado** (equivalente a un gasto de ~150–300 kcal) la mayoría de los días.
-- Progresar según tolerancia; combinar con terapia cognitivo-conductual para el apego.
+> "Es importante establecer metas realistas con relación a la pérdida de peso y fomentar
+> modificación en el estilo de vida." (C)
 
-## Mantenimiento
+## Actividad física (texto textual)
 
-- Tras alcanzar la meta, ajustar la ingesta al nuevo requerimiento para mantener el
-  peso y prevenir la recuperación; mantener actividad física y seguimiento periódico
-  del IMC y la circunferencia abdominal.
+> Se recomienda un gasto de "150 a 300 Kcal a través de la actividad física (30 minutos de
+> ejercicio moderado)".
+
+## Clasificación por IMC (texto textual de la guía)
+
+- IMC 25–29.9 kg/m²: sobrepeso
+- IMC 30–34.9 kg/m²: obesidad grado I
+- IMC 35–39.9 kg/m²: obesidad grado II
+- IMC ≥ 40 kg/m²: obesidad grado III (mórbida)
+
+> Dar seguimiento "midiendo el IMC y circunferencia abdominal".
+
+Nota de aplicación (no textual): combinar estas metas con la tabla de porciones del SMAE
+para construir el menú por equivalentes.
