@@ -1,0 +1,26 @@
+SUBIR ESTOS ARCHIVOS AL BUCKET DE SUPABASE
+==========================================
+
+Los 6 archivos .md de esta carpeta son los documentos de referencia
+nutricional que la aplicación inyecta en el prompt de la IA.
+
+QUÉ SUBIR:
+- Sube TODOS los archivos .md de esta carpeta (los 6).
+- NO subas este archivo LEEME.txt (es solo una nota para ti).
+
+DÓNDE SUBIRLOS:
+1. Entra a https://supabase.com y abre tu proyecto.
+2. Menú lateral izquierdo -> "Storage".
+3. Abre el bucket llamado exactamente:  reference-docs
+   (si no existe, créalo con ese nombre exacto).
+4. Botón "Upload" -> selecciona los 6 archivos .md -> subir.
+
+DESPUÉS DE SUBIR:
+5. En Streamlit Cloud: "Manage app" -> "Reboot" (la lista de documentos
+   se cachea 1 hora; reiniciar la toma de inmediato).
+6. En la app, revisa la barra lateral -> "Docs de Referencia":
+   debe mostrar "6 doc(s)".
+
+NOTA: si vuelves a subir un archivo con el mismo nombre, reemplaza al
+anterior. Para actualizar un documento, sube la versión nueva con el
+mismo nombre y reinicia la app.
