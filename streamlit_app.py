@@ -192,16 +192,24 @@ CONDITION_OPTIONS = [
 CKD_STAGES = ["G1", "G2", "G3a", "G3b", "G4", "G5"]
 
 AGE_KEYWORDS = [(18, ["adolescente", "joven"]), (30, ["adulto joven"]), (60, ["adulto"]), (999, ["adulto mayor", "tercera edad"])]
-BMI_KEYWORDS = [(18.5, "bajo peso"), (25, "peso normal"), (30, "sobrepeso"), (999, "obesidad")]
+# BMI bands: (upper bound exclusive, label, badge color). Single source for both
+# the summary badge and example-plan keyword matching — see bmi_category().
+BMI_BANDS = [
+    (18.5, "Bajo peso", "#4A90E2"),
+    (25, "Peso normal", "#7CB342"),
+    (30, "Sobrepeso", "#F5A623"),
+    (float("inf"), "Obesidad", "#D0021B"),
+]
 
 LAB_METRICS = {
+    # field = attribute on the LabValue model.
     # normal = (low_normal, high_normal); critical = (critical_low, critical_high).
     # Values outside `critical` warrant urgent clinical attention.
     # Generic clinical defaults — adjust per nutritionist guidance if needed.
-    "Glucosa (mg/dL)":       {"normal": (70, 100),  "critical": (50, 250),  "color": "#FF6B6B"},
-    "Colesterol (mg/dL)":    {"normal": (0, 200),   "critical": (0, 300),   "color": "#4ECDC4"},
-    "Triglicéridos (mg/dL)": {"normal": (0, 150),   "critical": (0, 500),   "color": "#45B7D1"},
-    "Hemoglobina (g/dL)":    {"normal": (12, 17),   "critical": (8, 20),    "color": "#96CEB4"},
+    "Glucosa (mg/dL)":       {"field": "glucose",       "normal": (70, 100), "critical": (50, 250)},
+    "Colesterol (mg/dL)":    {"field": "cholesterol",   "normal": (0, 200),  "critical": (0, 300)},
+    "Triglicéridos (mg/dL)": {"field": "triglycerides", "normal": (0, 150),  "critical": (0, 500)},
+    "Hemoglobina (g/dL)":    {"field": "hemoglobin",    "normal": (12, 17),  "critical": (8, 20)},
 }
 
 
@@ -223,13 +231,8 @@ def lab_status(metric: str, value) -> str:
 
 LAB_STATUS_ICON = {"critical": "🚨", "warning": "⚠️", "normal": "✅", "unknown": "—"}
 
-# Display metric name → LabValue model field
-LAB_FIELDS = [
-    ("Glucosa (mg/dL)", "glucose"),
-    ("Colesterol (mg/dL)", "cholesterol"),
-    ("Triglicéridos (mg/dL)", "triglycerides"),
-    ("Hemoglobina (g/dL)", "hemoglobin"),
-]
+# Display metric name → LabValue model field (derived; LAB_METRICS is the source)
+LAB_FIELDS = [(metric, info["field"]) for metric, info in LAB_METRICS.items()]
 
 # Optional per-plan nutrient targets the nutritionist can set at generation time.
 # (session key suffix, label, unit)
@@ -248,13 +251,10 @@ def bmi_category(bmi) -> tuple[str, str]:
     """Return (label, color_hex) for a BMI value."""
     if not bmi:
         return ("—", "#999999")
-    if bmi < 18.5:
-        return ("Bajo peso", "#4A90E2")
-    if bmi < 25:
-        return ("Peso normal", "#7CB342")
-    if bmi < 30:
-        return ("Sobrepeso", "#F5A623")
-    return ("Obesidad", "#D0021B")
+    for upper, label, color in BMI_BANDS:
+        if bmi < upper:
+            return (label, color)
+    return ("—", "#999999")
 
 
 # Line color by latest-value status
@@ -564,7 +564,8 @@ def extract_file_content(uploaded_file) -> str:
     ext = uploaded_file.name.rsplit(".", 1)[-1].lower()
     try:
         if ext in ("txt", "md"):
-            content = uploaded_file.read().decode("utf-8")
+            # errors="replace": a stray non-UTF8 byte shouldn't fail the whole upload
+            content = uploaded_file.read().decode("utf-8", errors="replace")
         elif ext == "docx":
             import docx
             content = "\n".join(p.text for p in docx.Document(uploaded_file).paragraphs)
@@ -599,10 +600,8 @@ def find_relevant_examples(patient, special_considerations, top_k=2):
         if patient.age < threshold:
             keywords.update(words)
             break
-    for threshold, word in BMI_KEYWORDS:
-        if (patient.bmi or 0) < threshold:
-            keywords.add(word)
-            break
+    if patient.bmi:
+        keywords.add(bmi_category(patient.bmi)[0].lower())
 
     scored = []
     for ex in all_examples:
@@ -905,7 +904,6 @@ def build_plan_docx(plan_text: str, patient) -> bytes:
     from docx import Document
     from docx.shared import Pt, Cm, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    import re
 
     doc = Document()
 
