@@ -22,10 +22,9 @@ DELETE FROM lab_values;
 DELETE FROM diet_plans;
 DELETE FROM patients;
 
--- 3) Example plans: uncomment ONLY if the current example plans are also test
---    data you want gone. If they are real templates the nutritionist will reuse,
---    leave this commented (we will assign them an owner in a later phase).
--- DELETE FROM example_plans;
+-- 3) Example plans are test data too — clear them (reference guideline docs in
+--    Storage are NOT affected). New per-nutritionist examples start fresh.
+DELETE FROM example_plans;
 
 -- 4) Confirm the tables are empty (expect 0 for the ones you cleared).
 SELECT
