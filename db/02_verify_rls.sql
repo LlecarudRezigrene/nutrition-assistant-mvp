@@ -5,7 +5,7 @@
 -- ============================================================================
 WITH checks AS (
   -- owner_id columns present, defaulting to auth.uid()
-  SELECT 'owner_id column' AS check, table_name AS detail,
+  SELECT 'owner_id column' AS check_name, table_name AS detail,
          CASE WHEN column_default LIKE '%auth.uid()%' THEN 'OK' ELSE 'MISSING DEFAULT' END AS status
   FROM information_schema.columns
   WHERE table_schema = 'public' AND column_name = 'owner_id'
@@ -30,4 +30,4 @@ WITH checks AS (
   WHERE grantee = 'authenticated' AND table_schema = 'public'
     AND table_name IN ('patients', 'lab_values', 'diet_plans', 'example_plans')
 )
-SELECT * FROM checks ORDER BY check, detail;
+SELECT * FROM checks ORDER BY check_name, detail;
