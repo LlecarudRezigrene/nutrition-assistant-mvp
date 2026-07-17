@@ -442,11 +442,14 @@ def get_db():
         # SET LOCAL / set_config(local=true) are scoped to THIS transaction and
         # auto-reset on commit — safe on the shared transaction pooler. Set the
         # JWT claims first (as superuser), then drop to the authenticated role.
-        session.execute(
-            text("SELECT set_config('request.jwt.claims', :claims, true)"),
-            {"claims": json.dumps({"sub": uid, "role": "authenticated"})},
+        # exec_driver_sql goes straight to psycopg2 (%s params), the same path
+        # init_db uses; str(uid) guards against a non-str uuid.
+        conn = session.connection()
+        conn.exec_driver_sql(
+            "SELECT set_config('request.jwt.claims', %s, true)",
+            (json.dumps({"sub": str(uid), "role": "authenticated"}),),
         )
-        session.execute(text("SET LOCAL ROLE authenticated"))
+        conn.exec_driver_sql("SET LOCAL ROLE authenticated")
         yield session
         session.commit()
     except Exception:
