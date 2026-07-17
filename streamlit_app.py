@@ -1,9 +1,9 @@
 import streamlit as st
 import io
 import hashlib
-import hmac
 import html
 import re
+import json
 from contextlib import contextmanager
 from sqlalchemy import create_engine, Column, Integer, String, Float, JSON, DateTime, Text, ForeignKey, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
@@ -86,15 +86,22 @@ LOGIN_WINDOW_SECS = 60       # window to count attempts in
 LOGIN_LOCKOUT_SECS = 60      # lockout duration after exceeding
 
 
-def _check_credentials(username: str, password: str) -> bool:
+def _verify_login(email: str, password: str):
+    """Verify credentials via Supabase Auth. Returns the user's uuid on success,
+    or None. We never store passwords — Supabase handles hashing and lockout.
+    The returned uuid becomes auth.uid() for Row Level Security."""
     try:
-        stored_user = st.secrets["auth"]["username"]
-        stored_hash = st.secrets["auth"]["password_hash"]
+        url = st.secrets["SUPABASE_URL"]
+        anon_key = st.secrets["SUPABASE_ANON_KEY"]
     except KeyError:
-        st.error("❌ Credenciales no configuradas en secrets.")
-        return False
-    password_hash = hashlib.sha256(password.encode()).hexdigest()
-    return hmac.compare_digest(username, stored_user) and hmac.compare_digest(password_hash, stored_hash)
+        st.error("❌ Autenticación no configurada (falta SUPABASE_ANON_KEY en secrets).")
+        return None
+    try:
+        client = create_supabase_client(url, anon_key)
+        resp = client.auth.sign_in_with_password({"email": email, "password": password})
+        return resp.user.id if resp and resp.user else None
+    except Exception:
+        return None  # invalid credentials or auth service error
 
 
 @st.cache_resource
@@ -142,7 +149,7 @@ def login_page():
         lockout_left = _login_lockout_remaining()
         with st.form("login_form"):
             st.subheader("🔐 Iniciar Sesión")
-            username = st.text_input("Usuario", disabled=lockout_left > 0)
+            email = st.text_input("Correo electrónico", disabled=lockout_left > 0)
             password = st.text_input("Contraseña", type="password", disabled=lockout_left > 0)
             submitted = st.form_submit_button("Entrar", type="primary", disabled=lockout_left > 0, use_container_width=True)
 
@@ -151,11 +158,13 @@ def login_page():
             return False
 
         if submitted:
-            if _check_credentials(username, password):
+            uid = _verify_login(email, password)
+            if uid:
                 # Successful login: clear any failed-attempt history
                 throttle = _login_throttle()
                 throttle["attempts"], throttle["locked_until"] = [], 0.0
                 st.session_state.authenticated = True
+                st.session_state.user_id = uid  # drives Row Level Security
                 st.rerun()
             else:
                 _record_failed_attempt()
@@ -424,6 +433,20 @@ SessionFactory = init_db()
 def get_db():
     session = SessionFactory()
     try:
+        # Run every query as the logged-in nutritionist so RLS restricts it to
+        # their own rows. Fail closed if there is no authenticated user rather
+        # than fall back to the RLS-bypassing superuser role.
+        uid = st.session_state.get("user_id")
+        if not uid:
+            raise RuntimeError("Sin usuario autenticado para acceso a la base de datos.")
+        # SET LOCAL / set_config(local=true) are scoped to THIS transaction and
+        # auto-reset on commit — safe on the shared transaction pooler. Set the
+        # JWT claims first (as superuser), then drop to the authenticated role.
+        session.execute(
+            text("SELECT set_config('request.jwt.claims', :claims, true)"),
+            {"claims": json.dumps({"sub": uid, "role": "authenticated"})},
+        )
+        session.execute(text("SET LOCAL ROLE authenticated"))
         yield session
         session.commit()
     except Exception:

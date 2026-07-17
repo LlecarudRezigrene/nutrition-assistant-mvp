@@ -32,27 +32,22 @@ streamlit run streamlit_app.py
 Add these keys in `.streamlit/secrets.toml` (local) or Streamlit Cloud Secrets:
 
 ```toml
-DATABASE_URL = "postgresql://..."
+DATABASE_URL = "postgresql://..."   # Supabase transaction pooler (port 6543)
 SUPABASE_URL = "https://<project>.supabase.co"
-SUPABASE_SERVICE_KEY = "<service-role-key>"
+SUPABASE_ANON_KEY = "<anon-public-key>"        # used for user login (Supabase Auth)
+SUPABASE_SERVICE_KEY = "<service-role-key>"    # used only for Storage (reference docs)
 
 OPENAI_API_KEY = "sk-..." # optional if using OpenAI
 ANTHROPIC_API_KEY = "sk-ant-..." # optional if using Anthropic
-
-[auth]
-username = "testuser"
-password_hash = "<sha256-of-password>"
 
 # Optional: set true only while debugging
 DEBUG_ERRORS = false
 ```
 
-Generate password hash:
-
-```python
-import hashlib
-print(hashlib.sha256("your_password".encode()).hexdigest())
-```
+Authentication uses **Supabase Auth** (email + password). Create nutritionist
+accounts in the Supabase dashboard (Authentication → Users) with sign-ups
+disabled. Per-user data isolation is enforced by Postgres Row Level Security —
+see `db/` for the setup SQL. There is no longer an `[auth]` secret section.
 
 ## Notes for Streamlit Cloud
 

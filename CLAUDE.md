@@ -18,7 +18,9 @@ pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-Requires `.streamlit/secrets.toml` — see README for the full list (`DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, optional API keys, `[auth]` username + SHA-256 password_hash).
+Requires `.streamlit/secrets.toml` — see README for the full list (`DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`, optional API keys).
+
+**Auth & multi-tenancy**: login is **Supabase Auth** (email + password via `SUPABASE_ANON_KEY`; `_verify_login` returns the user's uuid → `st.session_state.user_id`). Per-nutritionist isolation is enforced by **Postgres Row Level Security**, not app code: `get_db()` runs each transaction as the logged-in user (`SET LOCAL ROLE authenticated` + `request.jwt.claims.sub = user_id`), so every query returns only that owner's rows and `owner_id` auto-fills from `auth.uid()` on insert. RLS policies live in `db/01_multiuser_rls.sql`; `db/` also holds the setup/verification SQL. The DB connection uses the Supabase **transaction pooler** (port 6543) — only `SET LOCAL` (transaction-scoped) is safe there, never session-level `SET`.
 
 Theme lives in `.streamlit/config.toml` (committed; slate + teal, `#0D9488` primary). Global CSS (`_APP_CSS` after page config) sets the Inter font and hides Streamlit chrome — it keeps `stHeader` visible-but-transparent and pads the page 3.75rem to clear its fixed height; don't reduce that padding or content clips under the header. Secrets stay gitignored.
 
