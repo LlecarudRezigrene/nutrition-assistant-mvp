@@ -1,6 +1,10 @@
 # CLAUDE.md
 
-Spanish-language AI nutrition assistant for a nutritionist in Mexico. A logged-in user manages patients and lab values, then generates personalized diet plans with OpenAI or Anthropic, editable and downloadable as Word documents.
+Spanish-language AI nutrition assistant for nutritionists in Mexico. Each nutritionist logs in (Supabase Auth) and manages **their own** patients and lab values, then generates personalized diet plans with OpenAI or Anthropic, editable and downloadable as Word documents.
+
+## Project status (2026-07-17)
+
+Multi-user is **live**: Supabase Auth login + Postgres Row Level Security isolate each nutritionist's patients/labs/plans/example-plans (see Auth & multi-tenancy below). Test data wiped; two accounts exist (Diego + one nutritionist); two-account isolation verified. Reference docs all moved into the shared `guias/` bucket subfolder (shared grounding, hidden from the sidebar). **Next up**: nutritionist enters real patient data (user zero). **Deferred**: per-user reference docs + in-app upload (build when nutritionist #2 joins); WhatsApp integration (future); pin `requirements.txt`; migrate PyPDF2→pypdf. The old `[auth]` secret section is unused and can be deleted from Streamlit secrets.
 
 ## Tech stack
 
@@ -34,11 +38,13 @@ Quirk: `with tab_generar:` is entered **twice** (generation UI, then later the c
 
 Defined as SQLAlchemy models; documented in `docs/schema.sql`. Note: that file may lag the live DB — verify constraints/types against Supabase before relying on it (known open question: live `created_at`/`updated_at` may be `timestamp without time zone` while models say `timezone=True`).
 
-- **patients**: id PK, name, age, gender (`male`/`female`/`other` — UI maps via `GENDER_TO_DB`), weight, height, bmi, health_conditions (json list), nutrient_targets (json dict — per-patient daily targets, added via the `init_db` ALTER), created_at, updated_at
+All patient-data tables have **RLS enabled** with owner-scoped policies (`db/01_multiuser_rls.sql`); `patients` and `example_plans` carry an `owner_id uuid` (→ `auth.users`, default `auth.uid()`); `lab_values`/`diet_plans` inherit ownership through their patient.
+
+- **patients**: id PK, owner_id (uuid → auth.users, RLS owner), name, age, gender (`male`/`female`/`other` — UI maps via `GENDER_TO_DB`), weight, height, bmi, health_conditions (json list), nutrient_targets (json dict — per-patient daily targets, added via the `init_db` ALTER), created_at, updated_at
   - `health_conditions` is entered via a structured picker (`CONDITION_OPTIONS` multiselect + CKD stage/dialysis follow-up + free-text "other"), composed into the flat list by `_compose_conditions` and parsed back by `_decompose_conditions`. No schema change — CKD detail is stored as a string like `"Enfermedad renal crónica etapa G4, sin diálisis"`. Legacy free-text conditions decompose into the "other" field.
 - **lab_values**: id PK, patient_id FK→patients (CASCADE), test_date (varchar, ISO `YYYY-MM-DD` — sorts as string), glucose, cholesterol, triglycerides, hemoglobin, created_at
 - **diet_plans**: id PK, patient_id FK→patients (CASCADE), plan_details (text, markdown), special_considerations, status (default `active`), created_at, updated_at
-- **example_plans**: id PK, title, patient_profile, plan_content, tags (json list), created_at
+- **example_plans**: id PK, owner_id (uuid → auth.users, RLS owner — private per nutritionist), title, patient_profile, plan_content, tags (json list), created_at
 
 ## Conventions
 
@@ -61,5 +67,5 @@ Defined as SQLAlchemy models; documented in `docs/schema.sql`. Note: that file m
 - The delivered plan must NOT restate the patient's diagnoses: `build_plan_docx` omits conditions from the header, and the prompt instructs the model to use conditions only for clinical reasoning, never naming them in the output.
 - Nutritionist can set optional daily nutrient targets (`NUTRIENT_TARGETS`) in the Generar tab — number inputs keyed `target_<key>`, read via `_collect_targets()` (drops zeros = "not set"), formatted by `_format_targets()`. A set target takes priority over guideline defaults in the prompt. Persisted **per-patient** in `patients.nutrient_targets`: seeded on load in `load_patient_into_state`, saved in the create/update/generate/regenerate paths.
 - Prompt is split for caching: `_build_reference_system()` returns the role + reference documents (identical across patients) and is sent as a **cached** system prompt (`cache_system=True` in `_ai_complete` → Anthropic `cache_control`; OpenAI caches long prefixes automatically). `_build_patient_prompt()` returns the patient-specific user message (data + selected example plans + output spec). Reference docs are capped at `MAX_DOC_CHARS` (120k — large because they're cached once, not re-billed per patient).
-- Untrusted text going into LLM prompts passes through `_sanitise()` (strips non-printables, truncates). Reference docs (system) and example plans (user) are wrapped in INICIO/FIN delimiters and the prompt instructs the model to ignore instructions inside them. Credentials compare via `hmac.compare_digest`. Keep all three habits.
+- Untrusted text going into LLM prompts passes through `_sanitise()` (strips non-printables, truncates). Reference docs (system) and example plans (user) are wrapped in INICIO/FIN delimiters and the prompt instructs the model to ignore instructions inside them. Keep both habits. (Login is Supabase Auth now — the app no longer hashes/compares passwords itself.)
 - User-facing datetimes format as `%d/%m/%Y %H:%M`.

@@ -4,10 +4,10 @@ Streamlit app for generating personalized nutrition plans using OpenAI or Anthro
 
 ## Features
 
-- Single-user login (for testing) using credentials in Streamlit secrets.
+- Multi-user login via **Supabase Auth** (email + password); each nutritionist sees only their own data, enforced by Postgres Row Level Security.
 - Patient CRUD + lab history stored in PostgreSQL (Supabase).
 - AI plan generation and regeneration.
-- Optional reference PDF ingestion from Supabase Storage bucket `reference-docs`.
+- Reference document ingestion from the Supabase Storage `reference-docs` bucket (shared guidelines under `guias/`).
 
 ## Requirements
 

@@ -1,8 +1,15 @@
 -- Current Supabase schema (public tables)
--- Last updated: 2026-07-13
+-- Last updated: 2026-07-17
+--
+-- MULTI-USER: all four tables have Row Level Security ENABLED with owner-scoped
+-- policies (see db/01_multiuser_rls.sql). patients & example_plans carry owner_id
+-- (uuid -> auth.users, default auth.uid()); lab_values & diet_plans inherit
+-- ownership through their patient. The app connects as the authenticated user
+-- (SET LOCAL ROLE authenticated + request.jwt.claims) so RLS filters every query.
 
 CREATE TABLE patients (
   id integer,
+  owner_id uuid,  -- FK to auth.users; RLS owner; default auth.uid(); added via db/01_multiuser_rls.sql
   name character varying,
   age integer,
   gender character varying,
@@ -38,6 +45,7 @@ CREATE TABLE diet_plans (
 
 CREATE TABLE example_plans (
   id integer,
+  owner_id uuid,  -- FK to auth.users; RLS owner (private per nutritionist); added via db/01_multiuser_rls.sql
   title character varying,
   patient_profile text,
   plan_content text,
