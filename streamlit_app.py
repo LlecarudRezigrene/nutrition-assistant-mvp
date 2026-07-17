@@ -99,7 +99,7 @@ def _verify_login(email: str, password: str):
     try:
         client = create_supabase_client(url, anon_key)
         resp = client.auth.sign_in_with_password({"email": email, "password": password})
-        return resp.user.id if resp and resp.user else None
+        return resp.user if resp and resp.user else None  # user object (has .id and .email)
     except Exception:
         return None  # invalid credentials or auth service error
 
@@ -158,13 +158,14 @@ def login_page():
             return False
 
         if submitted:
-            uid = _verify_login(email, password)
-            if uid:
+            user = _verify_login(email, password)
+            if user:
                 # Successful login: clear any failed-attempt history
                 throttle = _login_throttle()
                 throttle["attempts"], throttle["locked_until"] = [], 0.0
                 st.session_state.authenticated = True
-                st.session_state.user_id = uid  # drives Row Level Security
+                st.session_state.user_id = user.id  # drives Row Level Security
+                st.session_state.user_email = user.email
                 st.rerun()
             else:
                 _record_failed_attempt()
@@ -1214,6 +1215,13 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
+# Logged-in nutritionist (right-aligned under the header)
+_user_email = st.session_state.get("user_email", "")
+if _user_email:
+    st.markdown(
+        f"<div style='text-align:right;color:#64748B;font-size:.85rem;margin-top:-.5rem;margin-bottom:.5rem'>👤 {html.escape(_user_email)}</div>",
+        unsafe_allow_html=True,
+    )
 
 # ── Sidebar ──
 with st.sidebar:
@@ -1526,8 +1534,9 @@ with tab_generar:
                     s.add(plan)
                     s.flush()
                     st.session_state.update(plan_generated=True, current_plan=plan_text, current_plan_id=plan.id)
+                # No st.rerun(): the plan renders in the "Plan Generado" section below
+                # in this same run. Rerunning here reset the active tab to the first one.
                 st.success(f"✅ Plan generado (ID: {st.session_state.current_plan_id})")
-                st.rerun()
         except Exception as e:
             _show_error("al generar plan", e)
 
