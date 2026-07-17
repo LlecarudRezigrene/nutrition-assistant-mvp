@@ -6,7 +6,7 @@ Spanish-language AI nutrition assistant for a nutritionist in Mexico. A logged-i
 
 - **Streamlit** single-file app: everything lives in `streamlit_app.py` (~1,400 lines). Deployed on Streamlit Cloud; config/secrets via `st.secrets`.
 - **SQLAlchemy + psycopg2** over **Supabase Postgres** (`DATABASE_URL`). Tables auto-created with `Base.metadata.create_all()`. `create_all` never ALTERs an existing table, so new columns are added via idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in `init_db` (see `nutrient_targets`) — that block is the place to add future column migrations.
-- **supabase** client only for Storage: reference PDFs in the `reference-docs` bucket, injected into the AI prompt.
+- **supabase** client only for Storage: reference docs in the `reference-docs` bucket, injected into the AI prompt. Files in the bucket **root** are the nutritionist's own uploads (listed in the sidebar); files in the **`guias/`** subfolder are shared system guidelines (ground every plan but hidden from the list). `load_reference_documents()` returns `(docs, issues, system_names)`.
 - **openai** / **anthropic** SDKs — provider chosen at runtime in the sidebar. Model names are module constants (`OPENAI_MODEL`, `ANTHROPIC_MODEL`) near the "AI generation" section.
 - **pandas + altair** for lab trend charts (altair ships with Streamlit; it's not in requirements.txt).
 - **python-docx / PyPDF2** for Word export and PDF/docx text extraction.

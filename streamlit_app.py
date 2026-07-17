@@ -468,27 +468,41 @@ def get_supabase_client():
         return None
 
 
+REFERENCE_SYSTEM_FOLDER = "guias"  # shared clinical guidelines: ground plans, hidden from the sidebar list
+
+
 @st.cache_data(ttl=3600)
-def load_reference_documents() -> tuple[dict[str, str], list[str]]:
-    """Returns (docs, issues). `issues` lists bucket files that could NOT be used
-    (unsupported format, no extractable text, read error) so uploads never fail
-    silently — the sidebar surfaces them to the nutritionist."""
+def load_reference_documents() -> tuple[dict[str, str], list[str], set[str]]:
+    """Returns (docs, issues, system_names). `docs` (name->text) is EVERYTHING that
+    grounds the AI: the nutritionist's own uploads in the bucket root PLUS the shared
+    guidelines in the `guias/` subfolder. `system_names` marks the guias/ ones so the
+    sidebar can hide them and list only the user's uploads. `issues` lists user-upload
+    files that could not be used (surfaced in the sidebar)."""
     client = get_supabase_client()
     if client is None:
-        return {}, []
-    try:
-        import PyPDF2
-        docs, issues = {}, []
-        for f in client.storage.from_(REFERENCE_BUCKET).list():
-            name = f["name"]
+        return {}, [], set()
+    import PyPDF2
+    docs, issues, system_names = {}, [], set()
+
+    def _read_folder(prefix: str, is_system: bool):
+        try:
+            entries = client.storage.from_(REFERENCE_BUCKET).list(prefix)
+        except Exception:
+            return
+        for f in entries:
+            name = f.get("name", "")
+            if not name or name.startswith("."):
+                continue
+            if f.get("id") is None:
+                continue  # a subfolder entry (e.g. 'guias' when listing root), not a file
             low = name.lower()
-            if name.startswith("."):
-                continue  # storage placeholder
+            path = f"{prefix}/{name}" if prefix else name
             if not low.endswith((".pdf", ".txt", ".md")):
-                issues.append(f"{name}: formato no soportado (usa PDF, TXT o MD)")
+                if not is_system:  # only nag about the nutritionist's own uploads
+                    issues.append(f"{name}: formato no soportado (usa PDF, TXT o MD)")
                 continue
             try:
-                data = client.storage.from_(REFERENCE_BUCKET).download(name)
+                data = client.storage.from_(REFERENCE_BUCKET).download(path)
                 if low.endswith(".pdf"):
                     extracted = "\n".join(page.extract_text() or "" for page in PyPDF2.PdfReader(io.BytesIO(data)).pages)
                 else:
@@ -496,15 +510,22 @@ def load_reference_documents() -> tuple[dict[str, str], list[str]]:
                     extracted = data.decode("utf-8", errors="replace")
                 extracted = extracted.strip()
                 if not extracted:
-                    # A PDF with no text layer (e.g. a scanned image) yields nothing
-                    issues.append(f"{name}: sin texto extraíble (¿PDF escaneado como imagen?)")
+                    if not is_system:
+                        issues.append(f"{name}: sin texto extraíble (¿PDF escaneado como imagen?)")
                     continue
                 docs[name] = extracted[:MAX_DOC_CHARS]
+                if is_system:
+                    system_names.add(name)
             except Exception:
-                issues.append(f"{name}: no se pudo leer")
-        return docs, issues
+                if not is_system:
+                    issues.append(f"{name}: no se pudo leer")
+
+    try:
+        _read_folder("", is_system=False)                       # bucket root = nutritionist's own uploads
+        _read_folder(REFERENCE_SYSTEM_FOLDER, is_system=True)   # guias/ = shared system guidelines
+        return docs, issues, system_names
     except Exception:
-        return {}, ["No se pudo acceder al bucket de documentos de referencia."]
+        return {}, ["No se pudo acceder al bucket de documentos de referencia."], set()
 
 
 # ──────────────────────────────────────────────
@@ -651,7 +672,7 @@ def _build_reference_system() -> tuple[str, bool]:
     """Reference context (role + guideline documents). Identical across all
     patients, so it is sent as a *cached* system prompt — repeated generations
     only pay full price for the patient-specific part. Returns (text, has_docs)."""
-    ref_docs, _ = load_reference_documents()
+    ref_docs, _, _ = load_reference_documents()  # all docs (user + system) ground the plan
     parts = [
         "Eres un nutriólogo experto mexicano que crea planes de alimentación "
         "personalizados y clínicamente fundamentados para pacientes en México."
@@ -1267,14 +1288,18 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("📄 Docs de Referencia")
-    ref_docs, ref_issues = load_reference_documents()
-    if ref_docs:
-        st.caption(f"✅ {len(ref_docs)} doc(s)")
-        for fname, text in ref_docs.items():
+    ref_docs, ref_issues, system_names = load_reference_documents()
+    # Show only the nutritionist's own uploads; shared guidelines ground plans but are hidden.
+    user_docs = {n: t for n, t in ref_docs.items() if n not in system_names}
+    if user_docs:
+        st.caption(f"✅ {len(user_docs)} documento(s) tuyo(s)")
+        for fname, text in user_docs.items():
             # Show approx size so a partially-extracted doc stands out
             st.caption(f"  • {fname} · {len(text) // 1000}k")
     else:
-        st.caption("Agrega PDFs al bucket 'reference-docs' en Supabase.")
+        st.caption("Agrega tus PDFs al bucket 'reference-docs' en Supabase.")
+    if system_names:
+        st.caption(f"➕ {len(system_names)} guía(s) clínica(s) del sistema (activas)")
     if ref_issues:
         # Uploads that could not be used — surfaced instead of failing silently
         st.warning("⚠️ Documentos no utilizables:\n" + "\n".join(f"- {i}" for i in ref_issues))
