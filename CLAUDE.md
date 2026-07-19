@@ -2,9 +2,9 @@
 
 Spanish-language AI nutrition assistant for nutritionists in Mexico. Each nutritionist logs in (Supabase Auth) and manages **their own** patients and lab values, then generates personalized diet plans with OpenAI or Anthropic, editable and downloadable as Word documents.
 
-## Project status (2026-07-17)
+## Project status (2026-07-18)
 
-Multi-user is **live**: Supabase Auth login + Postgres Row Level Security isolate each nutritionist's patients/labs/plans/example-plans (see Auth & multi-tenancy below). Test data wiped; two accounts exist (Diego + one nutritionist); two-account isolation verified. Reference docs all moved into the shared `guias/` bucket subfolder (shared grounding, hidden from the sidebar). **Next up**: nutritionist enters real patient data (user zero). **Deferred**: per-user reference docs + in-app upload (build when nutritionist #2 joins); WhatsApp integration (future); pin `requirements.txt`; migrate PyPDF2→pypdf. The old `[auth]` secret section is unused and can be deleted from Streamlit secrets.
+Multi-user is **live**: Supabase Auth login + Postgres Row Level Security isolate each nutritionist's patients/labs/plans/example-plans (see Auth & multi-tenancy below). Test data wiped; two accounts exist (Diego + one nutritionist); two-account isolation verified. Reference docs all moved into the shared `guias/` bucket subfolder (shared grounding, hidden from the sidebar). **In progress**: WhatsApp intake MVP (see the WhatsApp intake section) — slice 1 (walking skeleton) built. **Next up**: nutritionist enters real patient data (user zero). **Deferred**: per-user reference docs + in-app upload (build when nutritionist #2 joins); migrate PyPDF2→pypdf. Requirements are now pinned (`~=major.minor`). The old `[auth]` secret section is unused and can be deleted from Streamlit secrets.
 
 ## Tech stack
 
@@ -34,6 +34,19 @@ Theme lives in `.streamlit/config.toml` (committed; slate + teal, `#0D9488` prim
 
 Quirk: `with tab_generar:` is entered **twice** (generation UI, then later the current-plan/regenerate UI after the history tab) — intentional, don't "fix" it.
 
+## WhatsApp intake (monorepo additions)
+
+New-patient onboarding over WhatsApp, built for customer zero: patient messages the Twilio number → FastAPI webhook logs it → Claude drafts a Spanish (tú) welcome + HMAC'd intake-form link → draft waits in `pending_approvals` → nutritionist approves on the console's Aprobaciones page → Twilio sends → patient fills the public intake page → `patients` row created → nutritionist notified by WhatsApp. **Nothing is ever sent to a patient without console approval.**
+
+Layout: `whatsapp_service/` (FastAPI, own venv + `.env` + pinned requirements — see `whatsapp_service/CLAUDE.md` for service-specific rules), `shared/` (code imported by both sides), `pages/` (console pages + the public intake form), `db/04_whatsapp.sql` (tables + RLS).
+
+Rules:
+1. **Ownership**: the webhook service and the intake form have no logged-in user — they write via the service-role client and MUST stamp `owner_id = NUTRITIONIST_USER_ID` (config). Console reads stay on the RLS path. Single-tenant is a config constant, not a schema assumption.
+2. **`pages/*.py` run standalone** — the auth gate in `streamlit_app.py` does NOT protect them. Every console page starts with its own guard (`st.session_state.user_id` or stop). `pages/intake_form.py` is the only public page; it validates the HMAC link token (`shared/intake_links.py`) before doing anything.
+3. **Never import `streamlit_app.py` from a page** (it would re-run the whole app, incl. a second `set_page_config`). Page-side DB access goes through `shared/db.py`.
+4. **Config split**: console reads `st.secrets`; service reads `.env` via pydantic-settings (`whatsapp_service/config.py`). `shared/` modules read no config — values arrive as explicit arguments.
+5. Approved messages are sent by the **console** directly via `shared/messaging.py` (no console→FastAPI hop; the service is only reachable via ngrok in dev).
+
 ## Database tables
 
 Defined as SQLAlchemy models; documented in `docs/schema.sql`. Note: that file may lag the live DB — verify constraints/types against Supabase before relying on it (known open question: live `created_at`/`updated_at` may be `timestamp without time zone` while models say `timezone=True`).
@@ -45,6 +58,13 @@ All patient-data tables have **RLS enabled** with owner-scoped policies (`db/01_
 - **lab_values**: id PK, patient_id FK→patients (CASCADE), test_date (varchar, ISO `YYYY-MM-DD` — sorts as string), glucose, cholesterol, triglycerides, hemoglobin, created_at
 - **diet_plans**: id PK, patient_id FK→patients (CASCADE), plan_details (text, markdown), special_considerations, status (default `active`), created_at, updated_at
 - **example_plans**: id PK, owner_id (uuid → auth.users, RLS owner — private per nutritionist), title, patient_profile, plan_content, tags (json list), created_at
+
+WhatsApp additions (`db/04_whatsapp.sql`; service-role writes stamp `owner_id` explicitly, console reads via RLS):
+
+- **patients.whatsapp_number** (varchar, E.164 `+5215512345678`, UNIQUE, nullable) — THE link between WhatsApp senders and patient records
+- **whatsapp_messages**: id PK, owner_id, wa_number, direction (`inbound`/`outbound`), body, media_note (`voice`/`image`/`pdf`/`other` — receipt only, content never downloaded), twilio_sid, patient_id FK→patients (SET NULL), created_at
+- **pending_approvals**: id PK, owner_id, wa_number, draft_text, approved_text (what was actually sent, post-edit), status (`pending`/`sent`/`rejected`/`send_failed`), created_at, resolved_at
+- **intake_submissions**: id PK, owner_id, wa_number, form_data (jsonb, raw answers kept as audit trail), consent_accepted_at (LFPDPPP express consent), patient_id FK→patients (SET NULL), status (`new`/`patient_created`/`duplicate`), seen_by_nutritionist, created_at
 
 ## Conventions
 

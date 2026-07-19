@@ -1,0 +1,10 @@
+# WhatsApp intake service — Python 3.14. Compatible-release pins (~=) lock the
+# major.minor verified working on 2026-07-18; patch updates flow automatically.
+fastapi~=0.139
+uvicorn[standard]~=0.51
+twilio~=9.10
+supabase~=2.31
+pydantic~=2.13
+pydantic-settings~=2.14
+python-multipart~=0.0.32
+anthropic~=0.117

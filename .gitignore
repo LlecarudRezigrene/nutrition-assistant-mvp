@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .env
+.venv/
 *.db
 
 # Source guideline material — large PDFs and raw extracts.
