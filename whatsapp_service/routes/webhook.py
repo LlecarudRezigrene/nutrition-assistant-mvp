@@ -32,8 +32,12 @@ def _public_url(request: Request) -> str:
 
 
 def _normalise_number(raw: str) -> str:
-    """Twilio sends 'whatsapp:+5215512345678' — store bare E.164."""
-    return raw.removeprefix("whatsapp:").strip()
+    """Twilio sends 'whatsapp:+5215512345678' — store bare E.164.
+    Re-add a lost '+' (a literal '+' in form data decodes to a space)."""
+    number = raw.removeprefix("whatsapp:").strip()
+    if number.isdigit():
+        number = "+" + number
+    return number
 
 
 def _media_note(params: dict[str, str]) -> MediaNote | None:
